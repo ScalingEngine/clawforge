@@ -133,15 +133,19 @@ function init() {
     console.log('  To reset to default:  npx thepopebot reset <file>');
   }
 
-  // Run npm install
-  console.log('\nInstalling dependencies...\n');
-  execSync('npm install', { stdio: 'inherit', cwd });
+  // Handle gitignore rename (npm strips .gitignore from packages)
+  const gitignoreSrc = path.join(templatesDir, 'gitignore');
+  const gitignoreDest = path.join(cwd, '.gitignore');
+  if (fs.existsSync(gitignoreSrc) && !fs.existsSync(gitignoreDest)) {
+    fs.copyFileSync(gitignoreSrc, gitignoreDest);
+    console.log('  Created .gitignore');
+  }
 
   // Update THEPOPEBOT_VERSION in .env if it exists
   const envPath = path.join(cwd, '.env');
   if (fs.existsSync(envPath)) {
     try {
-      const thepopebotPkg = JSON.parse(fs.readFileSync(path.join(cwd, 'node_modules', 'thepopebot', 'package.json'), 'utf8'));
+      const thepopebotPkg = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
       const version = thepopebotPkg.version;
       let envContent = fs.readFileSync(envPath, 'utf8');
       if (envContent.match(/^THEPOPEBOT_VERSION=.*/m)) {
