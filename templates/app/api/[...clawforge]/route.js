@@ -1,1 +1,1 @@
-export { GET, POST } from 'clawforge/api';
+export { GET, POST } from '../../../api/index.js';

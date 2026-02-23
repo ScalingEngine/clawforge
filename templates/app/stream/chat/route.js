@@ -1,1 +1,1 @@
-export { POST } from 'clawforge/chat/api';
+export { POST } from '../../../lib/chat/api.js';

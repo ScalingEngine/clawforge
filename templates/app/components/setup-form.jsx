@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
-import { setupAdmin } from 'clawforge/auth/actions';
+import { setupAdmin } from '../../lib/auth/actions.js';
 
 export function SetupForm() {
   const router = useRouter();

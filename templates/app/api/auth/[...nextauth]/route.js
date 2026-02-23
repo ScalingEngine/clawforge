@@ -1,1 +1,1 @@
-export { GET, POST } from 'clawforge/auth';
+export { GET, POST } from '../../../../lib/auth/index.js';

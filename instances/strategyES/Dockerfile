@@ -31,8 +31,13 @@ COPY templates/postcss.config.mjs ./
 COPY templates/instrumentation.js ./
 COPY templates/middleware.js ./
 
-# Copy instance-specific config
-COPY instances/strategyES/config/ ./config/
+# Copy core config (index.js, instrumentation.js)
+COPY config/ ./config/
+
+# Copy instance-specific config (SOUL.md, EVENT_HANDLER.md, AGENT.md only — don't overwrite core config files)
+COPY instances/strategyES/config/SOUL.md ./config/SOUL.md
+COPY instances/strategyES/config/EVENT_HANDLER.md ./config/EVENT_HANDLER.md
+COPY instances/strategyES/config/AGENT.md ./config/AGENT.md
 
 # Build Next.js (needs AUTH_SECRET at build time)
 ENV AUTH_SECRET=build-placeholder

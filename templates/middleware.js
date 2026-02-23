@@ -1,1 +1,1 @@
-export { middleware, config } from 'clawforge/middleware';
+export { middleware, config } from './lib/auth/middleware.js';

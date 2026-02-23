@@ -1,5 +1,5 @@
-import { auth } from 'clawforge/auth';
-import { ChatPage } from 'clawforge/chat';
+import { auth } from '../../../lib/auth/index.js';
+import { ChatPage } from '../../../lib/chat/components/index.js';
 
 export default async function ChatRoute({ params }) {
   const { chatId } = await params;

@@ -1,4 +1,4 @@
-import { getPageAuthState } from 'clawforge/auth';
+import { getPageAuthState } from '../../lib/auth/index.js';
 import { AsciiLogo } from '../components/ascii-logo';
 import { SetupForm } from '../components/setup-form';
 import { LoginForm } from '../components/login-form';

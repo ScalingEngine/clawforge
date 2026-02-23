@@ -1,4 +1,4 @@
-import { TriggersPage } from 'clawforge/chat';
+import { TriggersPage } from '../../../lib/chat/components/index.js';
 
 export default function SettingsTriggersRoute() {
   return <TriggersPage />;
