@@ -14,9 +14,9 @@ RUN npm install -g pm2
 
 WORKDIR /app
 
-# Copy package files and install deps
+# Copy package files and install ALL deps (need devDeps for next build)
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm install
 
 # Copy core source
 COPY lib/ ./lib/
@@ -24,8 +24,22 @@ COPY api/ ./api/
 COPY drizzle/ ./drizzle/
 COPY drizzle.config.js ./
 
+# Copy Next.js app from templates
+COPY templates/app/ ./app/
+COPY templates/next.config.mjs ./
+COPY templates/postcss.config.mjs ./
+COPY templates/instrumentation.js ./
+COPY templates/middleware.js ./
+
 # Copy instance-specific config
 COPY instances/noah/config/ ./config/
+
+# Build Next.js (needs AUTH_SECRET at build time)
+ENV AUTH_SECRET=build-placeholder
+RUN npx next build
+
+# Remove devDependencies after build
+RUN npm prune --omit=dev
 
 # Copy ecosystem config
 COPY templates/docker/event-handler/ecosystem.config.cjs /opt/ecosystem.config.cjs

@@ -1,4 +1,4 @@
-import { SettingsSecretsPage } from 'thepopebot/chat';
+import { SettingsSecretsPage } from 'clawforge/chat';
 
 export default function SecretsRoute() {
   return <SettingsSecretsPage />;

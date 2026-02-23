@@ -1,5 +1,5 @@
-import { auth } from 'thepopebot/auth';
-import { ChatsPage } from 'thepopebot/chat';
+import { auth } from 'clawforge/auth';
+import { ChatsPage } from 'clawforge/chat';
 
 export default async function ChatsRoute() {
   const session = await auth();

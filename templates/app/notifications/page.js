@@ -1,5 +1,5 @@
-import { auth } from 'thepopebot/auth';
-import { NotificationsPage } from 'thepopebot/chat';
+import { auth } from 'clawforge/auth';
+import { NotificationsPage } from 'clawforge/chat';
 
 export default async function NotificationsRoute() {
   const session = await auth();

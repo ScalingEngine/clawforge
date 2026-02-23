@@ -1,5 +1,5 @@
-import { auth } from 'thepopebot/auth';
-import { SettingsLayout } from 'thepopebot/chat';
+import { auth } from 'clawforge/auth';
+import { SettingsLayout } from 'clawforge/chat';
 
 export default async function Layout({ children }) {
   const session = await auth();

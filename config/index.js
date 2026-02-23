@@ -9,7 +9,7 @@
  * @param {Object} nextConfig - User's Next.js config
  * @returns {Object} Enhanced Next.js config
  */
-export function withThepopebot(nextConfig = {}) {
+export function withClawforge(nextConfig = {}) {
   return {
     ...nextConfig,
     distDir: process.env.NEXT_BUILD_DIR || '.next',

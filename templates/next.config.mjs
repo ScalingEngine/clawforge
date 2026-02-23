@@ -1,3 +1,3 @@
-import { withThepopebot } from 'thepopebot/config';
+import { withClawforge } from 'clawforge/config';
 
-export default withThepopebot({});
+export default withClawforge({});

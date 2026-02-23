@@ -1,4 +1,4 @@
-import { CronsPage } from 'thepopebot/chat';
+import { CronsPage } from 'clawforge/chat';
 
 export default function SettingsCronsRoute() {
   return <CronsPage />;
