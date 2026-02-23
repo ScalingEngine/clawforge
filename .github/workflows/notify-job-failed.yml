@@ -58,9 +58,9 @@ jobs:
               commit_message: "",
               log: $log,
               merge_result: ""
-            }' > /tmp/payload.json
+            }' > "${RUNNER_TEMP:-/tmp}/payload.json"
 
           curl -s -X POST "${{ vars.APP_URL }}/api/github/webhook" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Webhook-Secret-Token: ${{ secrets.GH_WEBHOOK_SECRET }}" \
-            -d @/tmp/payload.json
+            -d @"${RUNNER_TEMP:-/tmp}/payload.json"
