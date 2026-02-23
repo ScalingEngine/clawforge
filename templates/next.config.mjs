@@ -1,3 +1,4 @@
-import { withClawforge } from 'clawforge/config';
-
-export default withClawforge({});
+export default {
+  distDir: process.env.NEXT_BUILD_DIR || '.next',
+  serverExternalPackages: ['better-sqlite3', 'drizzle-orm'],
+};
