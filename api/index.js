@@ -14,6 +14,44 @@ let telegramBotToken = null;
 // Cached trigger firing function (initialized on first request)
 let _fireTriggers = null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Rate limiter — sliding window per IP, per route
+// ─────────────────────────────────────────────────────────────────────────────
+
+const rateLimitStore = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 30; // 30 requests per minute per IP per route
+
+function checkRateLimit(ip, route) {
+  const key = `${ip}:${route}`;
+  const now = Date.now();
+  let timestamps = rateLimitStore.get(key);
+  if (!timestamps) {
+    timestamps = [];
+    rateLimitStore.set(key, timestamps);
+  }
+  // Remove expired entries
+  while (timestamps.length > 0 && timestamps[0] <= now - RATE_LIMIT_WINDOW_MS) {
+    timestamps.shift();
+  }
+  if (timestamps.length >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  timestamps.push(now);
+  return true;
+}
+
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamps] of rateLimitStore) {
+    while (timestamps.length > 0 && timestamps[0] <= now - RATE_LIMIT_WINDOW_MS) {
+      timestamps.shift();
+    }
+    if (timestamps.length === 0) rateLimitStore.delete(key);
+  }
+}, 300_000);
+
 function getTelegramBotToken() {
   if (!telegramBotToken) {
     telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || null;
@@ -256,6 +294,18 @@ async function handleJobStatus(request) {
 async function POST(request) {
   const url = new URL(request.url);
   const routePath = url.pathname.replace(/^\/api/, '');
+  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+
+  // Rate limit webhook endpoints
+  if (['/slack/events', '/telegram/webhook', '/github/webhook'].includes(routePath)) {
+    if (!checkRateLimit(clientIp, routePath)) {
+      console.warn(`[rate-limit] ${clientIp} ${routePath} — blocked`);
+      return Response.json({ error: 'Too many requests' }, { status: 429 });
+    }
+  }
+
+  // Audit log
+  console.log(`[api] POST ${routePath} from ${clientIp}`);
 
   // Auth check
   const authError = checkAuth(routePath, request);
