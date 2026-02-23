@@ -3,8 +3,9 @@ import { createJob } from '../lib/tools/create-job.js';
 import { setWebhook } from '../lib/tools/telegram.js';
 import { getJobStatus } from '../lib/tools/github.js';
 import { getTelegramAdapter, getSlackAdapter } from '../lib/channels/index.js';
-import { chat, summarizeJob } from '../lib/ai/index.js';
+import { chat, summarizeJob, addToThread } from '../lib/ai/index.js';
 import { createNotification } from '../lib/db/notifications.js';
+import { getJobOrigin } from '../lib/db/job-origins.js';
 import { loadTriggers } from '../lib/triggers.js';
 import { verifyApiKey } from '../lib/db/api-keys.js';
 
@@ -267,6 +268,29 @@ async function handleGithubWebhook(request) {
     await createNotification(message, payload);
 
     console.log(`Notification saved for job ${jobId.slice(0, 8)}`);
+
+    // Route notification back to originating thread
+    const origin = getJobOrigin(jobId);
+    if (origin) {
+      // Inject into LangGraph memory so agent knows the job finished
+      addToThread(origin.threadId, `[Job completed] ${message}`).catch(() => {});
+
+      // Send to Slack thread
+      if (origin.platform === 'slack') {
+        const [channel, threadTs] = origin.threadId.split(':');
+        const { SLACK_BOT_TOKEN } = process.env;
+        if (SLACK_BOT_TOKEN && channel && threadTs) {
+          try {
+            const { WebClient } = await import('@slack/web-api');
+            const slack = new WebClient(SLACK_BOT_TOKEN);
+            await slack.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+            console.log(`Slack notification sent for job ${jobId.slice(0, 8)}`);
+          } catch (err) {
+            console.error('Failed to send Slack notification:', err);
+          }
+        }
+      }
+    }
 
     return Response.json({ ok: true, notified: true });
   } catch (err) {

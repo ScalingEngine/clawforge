@@ -49,7 +49,7 @@ export function AppSidebar({ user }) {
         {/* Top row: brand name + toggle icon (open) or just toggle icon (collapsed) */}
         <div className={collapsed ? 'flex justify-center' : 'flex items-center justify-between'}>
           {!collapsed && (
-            <span className="px-2 font-semibold text-lg">ThePopeBot{version && <span className="text-[11px] font-normal text-muted-foreground"> v{version}</span>}</span>
+            <span className="px-2 font-semibold text-lg">ClawForge{version && <span className="text-[11px] font-normal text-muted-foreground"> v{version}</span>}</span>
           )}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -200,7 +200,7 @@ export function AppSidebar({ user }) {
               <TooltipTrigger asChild>
                 <SidebarMenuButton
                   className={collapsed ? 'justify-center' : ''}
-                  onClick={() => window.open('https://www.skool.com/ai-architects', '_blank')}
+                  onClick={() => window.open('https://scalingengine.com', '_blank')}
                 >
                   <LifeBuoyIcon size={16} />
                   {!collapsed && <span>Support</span>}
