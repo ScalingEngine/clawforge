@@ -75,7 +75,7 @@ fi
 echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md
 
 # 10. Determine allowed tools
-ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep,Task}"
+ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep,Task,Skill}"
 
 # 11. Run Claude Code with job description
 FULL_PROMPT="# Your Job
