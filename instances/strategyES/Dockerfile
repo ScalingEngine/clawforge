@@ -39,6 +39,9 @@ COPY instances/strategyES/config/SOUL.md ./config/SOUL.md
 COPY instances/strategyES/config/EVENT_HANDLER.md ./config/EVENT_HANDLER.md
 COPY instances/strategyES/config/AGENT.md ./config/AGENT.md
 
+# Build JSX components (esbuild: .jsx → .js)
+RUN npm run build
+
 # Build Next.js (needs AUTH_SECRET at build time)
 ENV AUTH_SECRET=build-placeholder
 RUN npx next build
