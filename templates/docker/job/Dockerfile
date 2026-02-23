@@ -31,10 +31,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @mariozechner/pi-coding-agent
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
 
-# Create Pi config directory (extension loaded from repo at runtime)
-RUN mkdir -p /root/.pi/agent
+# Create workspace and config directories
+RUN mkdir -p /workspace /workspace/.claude
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

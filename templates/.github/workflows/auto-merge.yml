@@ -1,4 +1,4 @@
-name: Auto-Merge Job PR
+name: Auto-Merge ClawForge PR
 
 on:
   pull_request:

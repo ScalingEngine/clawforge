@@ -1,10 +1,10 @@
 {
-  "name": "thepopebot",
-  "version": "1.2.70",
+  "name": "clawforge",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Create autonomous AI agents with a two-layer architecture: Next.js Event Handler + Docker Agent.",
+  "description": "Secure Claude Code agent gateway — multi-channel AI agent with Docker isolation and git-as-audit-trail.",
   "bin": {
-    "thepopebot": "./bin/cli.js"
+    "clawforge": "./bin/cli.js"
   },
   "main": "api/index.js",
   "exports": {
@@ -43,11 +43,12 @@
     "agent",
     "autonomous",
     "telegram",
-    "bot",
-    "claude",
-    "nextjs"
+    "slack",
+    "claude-code",
+    "nextjs",
+    "docker"
   ],
-  "author": "Stephen Pope",
+  "author": "Noah Wessel / Scaling Engine",
   "license": "MIT",
   "dependencies": {
     "@ai-sdk/react": "^2.0.0",
@@ -58,6 +59,8 @@
     "@langchain/langgraph": "^1.1.4",
     "@langchain/langgraph-checkpoint-sqlite": "^1.0.1",
     "@langchain/openai": "^1.2.7",
+    "@slack/bolt": "^4.1.0",
+    "@slack/web-api": "^7.8.0",
     "ai": "^5.0.0",
     "bcrypt-ts": "^6.0.0",
     "better-sqlite3": "^12.6.2",

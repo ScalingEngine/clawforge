@@ -2,7 +2,7 @@ name: Notify Job Failed
 
 on:
   workflow_run:
-    workflows: ["Run thepopebot Job"]
+    workflows: ["Run ClawForge Job"]
     types: [completed]
 
 jobs:

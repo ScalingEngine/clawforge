@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { createJob } from '../lib/tools/create-job.js';
 import { setWebhook } from '../lib/tools/telegram.js';
 import { getJobStatus } from '../lib/tools/github.js';
-import { getTelegramAdapter } from '../lib/channels/index.js';
+import { getTelegramAdapter, getSlackAdapter } from '../lib/channels/index.js';
 import { chat, summarizeJob } from '../lib/ai/index.js';
 import { createNotification } from '../lib/db/notifications.js';
 import { loadTriggers } from '../lib/triggers.js';
@@ -30,7 +30,7 @@ function getFireTriggers() {
 }
 
 // Routes that have their own authentication
-const PUBLIC_ROUTES = ['/telegram/webhook', '/github/webhook', '/ping'];
+const PUBLIC_ROUTES = ['/telegram/webhook', '/github/webhook', '/slack/events', '/ping'];
 
 /**
  * Timing-safe string comparison.
@@ -121,7 +121,7 @@ async function handleTelegramWebhook(request) {
   if (!normalized) return Response.json({ ok: true });
 
   // Process message asynchronously (don't block the webhook response)
-  processChannelMessage(adapter, normalized).catch((err) => {
+  processChannelMessage(adapter, normalized, { userId: 'telegram', chatTitle: 'Telegram' }).catch((err) => {
     console.error('Failed to process message:', err);
   });
 
@@ -131,8 +131,12 @@ async function handleTelegramWebhook(request) {
 /**
  * Process a normalized message through the AI layer with channel UX.
  * Message persistence is handled centrally by the AI layer.
+ *
+ * @param {ChannelAdapter} adapter
+ * @param {object} normalized - { threadId, text, attachments, metadata }
+ * @param {object} [channelContext] - { userId, chatTitle } for AI layer
  */
-async function processChannelMessage(adapter, normalized) {
+async function processChannelMessage(adapter, normalized, channelContext = { userId: 'unknown', chatTitle: 'Unknown' }) {
   await adapter.acknowledge(normalized.metadata);
   const stopIndicator = adapter.startProcessingIndicator(normalized.metadata);
 
@@ -141,7 +145,7 @@ async function processChannelMessage(adapter, normalized) {
       normalized.threadId,
       normalized.text,
       normalized.attachments,
-      { userId: 'telegram', chatTitle: 'Telegram' }
+      channelContext
     );
     await adapter.sendResponse(normalized.threadId, response, normalized.metadata);
   } catch (err) {
@@ -156,6 +160,45 @@ async function processChannelMessage(adapter, normalized) {
   } finally {
     stopIndicator();
   }
+}
+
+async function handleSlackEvents(request) {
+  const { SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SLACK_ALLOWED_USERS, SLACK_ALLOWED_CHANNELS } = process.env;
+
+  if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
+    console.error('[slack] SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET not configured');
+    return Response.json({ error: 'Slack not configured' }, { status: 500 });
+  }
+
+  const allowedUserIds = SLACK_ALLOWED_USERS
+    ? SLACK_ALLOWED_USERS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  const allowedChannelIds = SLACK_ALLOWED_CHANNELS
+    ? SLACK_ALLOWED_CHANNELS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  const adapter = getSlackAdapter({
+    botToken: SLACK_BOT_TOKEN,
+    signingSecret: SLACK_SIGNING_SECRET,
+    allowedUserIds,
+    allowedChannelIds,
+  });
+
+  const result = await adapter.receive(request);
+
+  // URL verification challenge — must respond synchronously
+  if (result && result.type === 'url_verification') {
+    return Response.json({ challenge: result.challenge });
+  }
+
+  if (!result) return Response.json({ ok: true });
+
+  // Process message asynchronously (don't block the webhook response)
+  processChannelMessage(adapter, result, { userId: 'slack', chatTitle: 'Slack' }).catch((err) => {
+    console.error('Failed to process Slack message:', err);
+  });
+
+  return Response.json({ ok: true });
 }
 
 async function handleGithubWebhook(request) {
@@ -236,6 +279,7 @@ async function POST(request) {
     case '/create-job':          return handleWebhook(request);
     case '/telegram/webhook':   return handleTelegramWebhook(request);
     case '/telegram/register':  return handleTelegramRegister(request);
+    case '/slack/events':       return handleSlackEvents(request);
     case '/github/webhook':     return handleGithubWebhook(request);
     default:                    return Response.json({ error: 'Not found' }, { status: 404 });
   }

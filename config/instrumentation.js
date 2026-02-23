@@ -1,12 +1,6 @@
 /**
- * Next.js instrumentation hook for thepopebot.
- * This file is loaded by Next.js on server start when instrumentationHook is enabled.
- *
- * Users should create an instrumentation.js in their project root that imports this:
- *
- *   export { register } from 'thepopebot/instrumentation';
- *
- * Or they can re-export and add their own logic.
+ * Next.js instrumentation hook for ClawForge.
+ * Loaded by Next.js on server start when instrumentationHook is enabled.
  */
 
 let initialized = false;
@@ -16,9 +10,7 @@ export async function register() {
   if (typeof window !== 'undefined' || initialized) return;
   initialized = true;
 
-  // Skip database init and cron scheduling during `next build` —
-  // these are runtime-only concerns that keep the event loop alive
-  // and can cause build output corruption.
+  // Skip database init and cron scheduling during `next build`
   if (process.argv.includes('build')) return;
 
   // Load .env from project root
@@ -29,8 +21,7 @@ export async function register() {
   if (!process.env.AUTH_SECRET) {
     console.error('\n  ERROR: AUTH_SECRET is not set in your .env file.');
     console.error('  This is required for session encryption.');
-    console.error('  Run "npm run setup" to generate it automatically, or add manually:');
-    console.error('  openssl rand -base64 32\n');
+    console.error('  Run "openssl rand -base64 32" to generate one.\n');
     throw new Error('AUTH_SECRET environment variable is required');
   }
 
@@ -42,16 +33,9 @@ export async function register() {
   const { loadCrons } = await import('../lib/cron.js');
   loadCrons();
 
-  // Start built-in crons (version check)
-  const { startBuiltinCrons, setUpdateAvailable } = await import('../lib/cron.js');
+  // Start built-in crons
+  const { startBuiltinCrons } = await import('../lib/cron.js');
   startBuiltinCrons();
 
-  // Warm in-memory flag from DB (covers the window before the async cron fetch completes)
-  try {
-    const { getAvailableVersion } = await import('../lib/db/update-check.js');
-    const stored = getAvailableVersion();
-    if (stored) setUpdateAvailable(stored);
-  } catch {}
-
-  console.log('thepopebot initialized');
+  console.log('ClawForge initialized');
 }

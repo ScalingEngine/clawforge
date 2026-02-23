@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Extract job ID from branch name (job/uuid -> uuid), fallback to random UUID
+# 1. Extract job ID from branch name
 if [[ "$BRANCH" == job/* ]]; then
     JOB_ID="${BRANCH#job/}"
 else
@@ -9,19 +9,19 @@ else
 fi
 echo "Job ID: ${JOB_ID}"
 
-# Export SECRETS (JSON) as flat env vars (GH_TOKEN, ANTHROPIC_API_KEY, etc.)
-# These are filtered from LLM's bash subprocess by env-sanitizer extension
+# 2. Export SECRETS (JSON) as flat env vars
+# These are filtered from Claude Code's subprocess via --allowedTools
 if [ -n "$SECRETS" ]; then
     eval $(echo "$SECRETS" | jq -r 'to_entries | .[] | "export \(.key)=\"\(.value)\""')
 fi
 
-# Export LLM_SECRETS (JSON) as flat env vars
-# These are NOT filtered - LLM can access these (browser logins, skill API keys, etc.)
+# 3. Export LLM_SECRETS (JSON) as flat env vars
+# These ARE accessible to Claude Code
 if [ -n "$LLM_SECRETS" ]; then
     eval $(echo "$LLM_SECRETS" | jq -r 'to_entries | .[] | "export \(.key)=\"\(.value)\""')
 fi
 
-# Git setup - derive identity from GitHub token
+# 4. Git setup from GitHub token
 gh auth setup-git
 GH_USER_JSON=$(gh api user -q '{name: .name, login: .login, email: .email, id: .id}')
 GH_USER_NAME=$(echo "$GH_USER_JSON" | jq -r '.name // .login')
@@ -29,110 +29,77 @@ GH_USER_EMAIL=$(echo "$GH_USER_JSON" | jq -r '.email // "\(.id)+\(.login)@users.
 git config --global user.name "$GH_USER_NAME"
 git config --global user.email "$GH_USER_EMAIL"
 
-# Clone branch
+# 5. Clone the job branch
 if [ -n "$REPO_URL" ]; then
     git clone --single-branch --branch "$BRANCH" --depth 1 "$REPO_URL" /job
 else
     echo "No REPO_URL provided"
+    exit 1
 fi
 
 cd /job
 
-# Create temp directory for agent use (gitignored via tmp/)
+# Create temp directory (gitignored)
 mkdir -p /job/tmp
 
-# Install npm deps for symlinked skills (native deps need correct Linux arch)
-for skill_dir in /job/.pi/skills/*/; do
-    if [ -f "${skill_dir}package.json" ]; then
-        echo "Installing skill deps: $(basename "$skill_dir")"
-        (cd "$skill_dir" && npm install --omit=dev --no-package-lock)
-    fi
-done
-
-# Start Chrome if available (installed by browser-tools skill via Puppeteer)
-CHROME_PID=""
-CHROME_BIN=$(find /root/.cache/puppeteer -name "chrome" -type f 2>/dev/null | head -1)
-if [ -n "$CHROME_BIN" ]; then
-    $CHROME_BIN --headless --no-sandbox --disable-gpu --remote-debugging-port=9222 2>/dev/null &
-    CHROME_PID=$!
-    sleep 2
-fi
-
-# Setup logs
+# 6. Setup logs directory
 LOG_DIR="/job/logs/${JOB_ID}"
 mkdir -p "${LOG_DIR}"
 
-# 1. Build system prompt from config MD files
-SYSTEM_FILES=("SOUL.md" "AGENT.md")
-> /job/.pi/SYSTEM.md
-for i in "${!SYSTEM_FILES[@]}"; do
-    cat "/job/config/${SYSTEM_FILES[$i]}" >> /job/.pi/SYSTEM.md
-    if [ "$i" -lt $((${#SYSTEM_FILES[@]} - 1)) ]; then
-        echo -e "\n\n" >> /job/.pi/SYSTEM.md
-    fi
-done
-
-# Resolve {{datetime}} variable in SYSTEM.md
-sed -i "s/{{datetime}}/$(date -u +"%Y-%m-%dT%H:%M:%SZ")/g" /job/.pi/SYSTEM.md
-
-PROMPT="
-
-# Your Job
-
-$(cat /job/logs/${JOB_ID}/job.md)"
-
-LLM_PROVIDER="${LLM_PROVIDER:-anthropic}"
-
-MODEL_FLAGS="--provider $LLM_PROVIDER"
-if [ -n "$LLM_MODEL" ]; then
-    MODEL_FLAGS="$MODEL_FLAGS --model $LLM_MODEL"
+# 7. Build system prompt from config files
+SYSTEM_PROMPT=""
+if [ -f "/job/config/SOUL.md" ]; then
+    SYSTEM_PROMPT=$(cat /job/config/SOUL.md)
+    SYSTEM_PROMPT="${SYSTEM_PROMPT}\n\n"
+fi
+if [ -f "/job/config/AGENT.md" ]; then
+    SYSTEM_PROMPT="${SYSTEM_PROMPT}$(cat /job/config/AGENT.md)"
 fi
 
-# Generate models.json for custom provider (OpenAI-compatible endpoints like Ollama)
-if [ "$LLM_PROVIDER" = "custom" ] && [ -n "$OPENAI_BASE_URL" ]; then
-    # If no API key was provided, set a dummy so Pi doesn't send empty auth
-    if [ -z "$CUSTOM_API_KEY" ]; then
-        export CUSTOM_API_KEY="not-needed"
-    fi
-    cat > /root/.pi/agent/models.json <<MODELS
-{
-  "providers": {
-    "custom": {
-      "baseUrl": "$OPENAI_BASE_URL",
-      "api": "openai-completions",
-      "apiKey": "CUSTOM_API_KEY",
-      "models": [{ "id": "$LLM_MODEL" }]
-    }
-  }
-}
-MODELS
+# Resolve {{datetime}} variable
+SYSTEM_PROMPT=$(echo -e "$SYSTEM_PROMPT" | sed "s/{{datetime}}/$(date -u +"%Y-%m-%dT%H:%M:%SZ")/g")
+
+# 8. Read job description
+JOB_DESCRIPTION=""
+if [ -f "/job/logs/${JOB_ID}/job.md" ]; then
+    JOB_DESCRIPTION=$(cat "/job/logs/${JOB_ID}/job.md")
 fi
 
-# Copy custom models.json to PI's global config if present in repo (overrides generated)
-if [ -f "/job/.pi/agent/models.json" ]; then
-    mkdir -p /root/.pi/agent
-    cp /job/.pi/agent/models.json /root/.pi/agent/models.json
+# 9. Setup Claude Code configuration
+# Copy .claude config if it exists in the repo
+if [ -d "/job/.claude" ]; then
+    echo "Found .claude config in repo"
 fi
 
-pi $MODEL_FLAGS -p "$PROMPT" --session-dir "${LOG_DIR}"
+# Write system prompt to a file for --append-system-prompt
+echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md
 
-# 2. Commit changes + logs
+# 10. Determine allowed tools
+ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep}"
+
+# 11. Run Claude Code with job description
+FULL_PROMPT="# Your Job
+
+${JOB_DESCRIPTION}"
+
+echo "Running Claude Code with job ${JOB_ID}..."
+claude -p \
+    --output-format json \
+    --append-system-prompt "$(cat /tmp/system-prompt.md)" \
+    --allowedTools "${ALLOWED_TOOLS}" \
+    "${FULL_PROMPT}" \
+    2>&1 | tee "${LOG_DIR}/claude-output.json" || true
+
+# 12. Commit all changes
 git add -A
-git add -f "${LOG_DIR}"
-git commit -m "thepopebot: job ${JOB_ID}" || true
-git push origin
+git add -f "${LOG_DIR}" || true
+git commit -m "clawforge: job ${JOB_ID}" || true
+git push origin || true
 
-# 3. Merge (pi has memory of job via session)
-#if [ -n "$REPO_URL" ] && [ -f "/job/MERGE_JOB.md" ]; then
-#    echo "MERGED"
-#    pi -p "$(cat /job/MERGE_JOB.md)" --session-dir "${LOG_DIR}" --continue
-#fi
+# 13. Create PR
+gh pr create \
+    --title "clawforge: job ${JOB_ID}" \
+    --body "Automated job by ClawForge" \
+    --base main || true
 
-# 5. Create PR (auto-merge handled by GitHub Actions workflow)
-gh pr create --title "thepopebot: job ${JOB_ID}" --body "Automated job" --base main || true
-
-# Cleanup
-if [ -n "$CHROME_PID" ]; then
-    kill $CHROME_PID 2>/dev/null || true
-fi
 echo "Done. Job ID: ${JOB_ID}"

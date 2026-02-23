@@ -2,7 +2,7 @@ name: Notify Event Handler
 
 on:
   workflow_run:
-    workflows: ["Auto-Merge Job PR"]
+    workflows: ["Auto-Merge ClawForge PR"]
     types: [completed]
 
 jobs:
