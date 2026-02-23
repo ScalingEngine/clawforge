@@ -1,0 +1,1 @@
+In the `ScalingEngine/clawforge` repo, create a file called `hello-world.md` in the repo root. The file should contain a simple Hello World message with a timestamp noting when it was created. Commit the file to a new branch and open a PR.
