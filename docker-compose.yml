@@ -89,8 +89,8 @@ services:
     restart: unless-stopped
 
   # ─── StrategyES Event Handler ────────────────────────────────────────
-  strategyES-event-handler:
-    container_name: clawforge-strategyES
+  ses-event-handler:
+    container_name: clawforge-ses
     build:
       context: .
       dockerfile: instances/strategyES/Dockerfile
@@ -118,12 +118,10 @@ services:
       - ses-config:/app/config
     labels:
       - traefik.enable=true
-      - traefik.http.routers.strategyES.rule=Host(`${SES_APP_HOSTNAME}`)
-      - traefik.http.routers.strategyES.entrypoints=web
-      - traefik.http.services.strategyES.loadbalancer.server.port=80
-      ## Uncomment the following lines to enable TLS via Let's Encrypt:
-      # - traefik.http.routers.strategyES.entrypoints=websecure
-      # - traefik.http.routers.strategyES.tls.certresolver=letsencrypt
+      - traefik.http.routers.ses.rule=Host(`${SES_APP_HOSTNAME}`)
+      - traefik.http.routers.ses.entrypoints=websecure
+      - traefik.http.routers.ses.tls.certresolver=letsencrypt
+      - traefik.http.services.ses.loadbalancer.server.port=80
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/api/ping"]
       interval: 10s
