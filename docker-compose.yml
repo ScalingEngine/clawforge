@@ -126,20 +126,6 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # ─── GitHub Actions Self-Hosted Runner (org-level) ───────────────────
-  github-runner:
-    image: myoung34/github-runner:latest
-    networks:
-      - noah-net
-    environment:
-      REPO_URL: https://github.com/${NOAH_GH_OWNER}/${NOAH_GH_REPO}
-      ACCESS_TOKEN: ${NOAH_GH_TOKEN}
-      RUNNER_SCOPE: org
-      ORG_NAME: ${NOAH_GH_OWNER:-ScalingEngine}
-      LABELS: self-hosted
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
 
 volumes:
   noah-data:
