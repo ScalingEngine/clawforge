@@ -59,16 +59,86 @@ Jobs have access to the following systems through MCP and direct integrations:
 
 ---
 
-## GSD Workflow
+## GSD Workflow — Complete Command Reference
 
-Jobs can leverage the GSD (Get Stuff Done) workflow skills for structured execution:
+Jobs can leverage the GSD (Get Stuff Done) workflow skills for structured project execution. GSD provides atomic commits, state tracking, parallel agents, and milestone-based planning. **When writing job descriptions, reference the specific GSD command so the container agent knows which workflow to run.**
 
-- **`/gsd:quick`** — Fast-track a simple, well-defined task
-- **`/gsd:plan-phase`** — Plan a complex task before execution
-- **`/gsd:execute-phase`** — Execute against an existing plan
-- **`/gsd:debug`** — Debug and fix issues systematically
+### Project Lifecycle
 
-When writing job descriptions for complex tasks, reference GSD commands to give the agent structured approaches. For simple tasks, direct instructions are fine.
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:new-project` | Initialize a new project with deep context gathering and PROJECT.md | Starting a brand new project from scratch |
+| `/gsd:new-milestone` | Start a new milestone cycle — update PROJECT.md and route to requirements | Starting a fresh milestone after completing the previous one |
+| `/gsd:complete-milestone` | Archive completed milestone and prepare for next version | A milestone is finished and ready to close out |
+| `/gsd:audit-milestone` | Audit milestone completion against original intent before archiving | Before completing a milestone to verify all goals were met |
+| `/gsd:plan-milestone-gaps` | Create phases to close all gaps identified by milestone audit | After audit-milestone finds gaps that need work |
+
+### Phase Planning & Execution
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:discuss-phase` | Gather phase context through adaptive questioning before planning | Before planning a phase to understand full scope and requirements |
+| `/gsd:list-phase-assumptions` | Surface Claude's assumptions about a phase approach | Before planning to validate approach assumptions |
+| `/gsd:research-phase` | Research how to implement a phase (standalone) | For standalone research on implementation approach |
+| `/gsd:plan-phase` | Create detailed phase plan (PLAN.md) with verification loop | Ready to plan out the detailed work for a phase |
+| `/gsd:execute-phase` | Execute all plans in a phase with wave-based parallelization | Ready to implement a planned phase |
+| `/gsd:verify-work` | Validate built features through conversational UAT | After executing a phase to confirm the work functions |
+
+### Quick Tasks & Debugging
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:quick` | Execute a quick task with GSD guarantees (atomic commits, state tracking) but skip optional agents | Small, well-defined ad-hoc tasks |
+| `/gsd:debug` | Systematic debugging with persistent state across context resets | Troubleshooting code issues that need structured investigation |
+
+### Roadmap Management
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:add-phase` | Add phase to end of current milestone in roadmap | Adding new work to the current milestone |
+| `/gsd:insert-phase` | Insert urgent work as decimal phase (e.g., 72.1) between existing phases | Urgent work that must slot between existing phases |
+| `/gsd:remove-phase` | Remove a future phase from roadmap and renumber subsequent phases | Canceling or deferring a planned phase |
+| `/gsd:progress` | Check project progress, show context, and route to next action | Situational awareness before continuing work |
+
+### Session Management
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:pause-work` | Create context handoff when pausing work mid-phase | Pausing work to hand off to another session |
+| `/gsd:resume-work` | Resume work from previous session with full context restoration | Resuming a paused phase with full context |
+| `/gsd:add-todo` | Capture idea or task as todo from current conversation context | Quick idea or task to track without full planning |
+| `/gsd:check-todos` | List pending todos and select one to work on | Working on captured todos from previous sessions |
+
+### Codebase & Project Health
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:map-codebase` | Analyze codebase with parallel mapper agents | Onboarding to a codebase or starting a new project |
+| `/gsd:health` | Diagnose planning directory health and optionally repair issues | GSD commands fail or project structure seems corrupted |
+| `/gsd:cleanup` | Archive accumulated phase directories from completed milestones | After completing multiple milestones to clean up |
+
+### Configuration
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `/gsd:set-profile` | Switch model profile (quality/balanced/budget) | Changing model quality level for cost/speed tradeoffs |
+| `/gsd:settings` | Configure GSD workflow toggles and model profile | Adjusting GSD workflow options |
+| `/gsd:update` | Update GSD to latest version | Updating the GSD framework |
+| `/gsd:reapply-patches` | Reapply local modifications after a GSD update | After gsd:update if local modifications existed |
+
+### How to Choose the Right Command
+
+- **"Build me X from scratch"** → `/gsd:new-project` (if new repo) or `/gsd:quick` (if small feature in existing project)
+- **"Plan how to build X"** → `/gsd:plan-phase`
+- **"Execute the plan"** → `/gsd:execute-phase`
+- **"Fix this bug"** → `/gsd:debug` (complex) or `/gsd:quick` (simple)
+- **"Add a file / make a small change"** → `/gsd:quick`
+- **"What's the status?"** → `/gsd:progress`
+- **"Start a new version/milestone"** → `/gsd:new-milestone`
+- **"Check if the build is good"** → `/gsd:verify-work`
+- **"Analyze this codebase"** → `/gsd:map-codebase`
+
+When in doubt, `/gsd:quick` for small tasks and `/gsd:plan-phase` + `/gsd:execute-phase` for anything substantial.
 
 ---
 
