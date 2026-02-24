@@ -23,11 +23,11 @@ Four phases in strict dependency order: fix the broken entrypoint so `claude -p`
   3. Docker build fails loudly if GSD install step produces no `~/.claude/commands/gsd/` directory
   4. `templates/docker/job/Dockerfile` and `entrypoint.sh` are byte-for-byte equivalent to `docker/job/` counterparts
   5. `.env.vps` is listed in `.gitignore` and cannot be accidentally committed
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 01-01: Fix FULL_PROMPT delivery bug in entrypoint and add pre-flight diagnostic block
-- [ ] 01-02: Add build-time GSD verification to Dockerfile and sync templates
+- [ ] 01-01-PLAN.md — Fix prompt delivery (stdin pipe), add preflight diagnostics + GSD runtime check, lock .env.vps
+- [ ] 01-02-PLAN.md — Add build-time GSD verification to Dockerfile, sync templates to match live files
 
 ### Phase 2: Output Observability
 **Goal**: GSD invocations are recorded automatically during job execution and surface as human-readable artifacts in every PR, with the notification workflow sending actual log content
