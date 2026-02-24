@@ -202,7 +202,7 @@ async function processChannelMessage(adapter, normalized, channelContext = { use
 }
 
 async function handleSlackEvents(request) {
-  const { SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SLACK_ALLOWED_USERS, SLACK_ALLOWED_CHANNELS } = process.env;
+  const { SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SLACK_ALLOWED_USERS, SLACK_ALLOWED_CHANNELS, SLACK_REQUIRE_MENTION } = process.env;
 
   if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
     console.error('[slack] SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET not configured');
@@ -221,6 +221,7 @@ async function handleSlackEvents(request) {
     signingSecret: SLACK_SIGNING_SECRET,
     allowedUserIds,
     allowedChannelIds,
+    requireMention: SLACK_REQUIRE_MENTION === 'true',
   });
 
   const result = await adapter.receive(request);
