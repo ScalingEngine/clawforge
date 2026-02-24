@@ -20,28 +20,36 @@ jobs:
     runs-on: [self-hosted, clawforge]
     timeout-minutes: 20
     steps:
-      - name: Find project and pull latest
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+
+      - name: Resolve compose project
         id: setup
         run: |
+          # Get the compose project name and .env path from the running containers
+          PROJECT_NAME=$(docker inspect clawforge-noah --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || echo "")
           PROJECT_DIR=$(docker inspect clawforge-noah --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || echo "")
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Could not find clawforge project directory from container labels"
+
+          if [ -z "$PROJECT_NAME" ] || [ -z "$PROJECT_DIR" ]; then
+            echo "Could not find compose project from running containers"
             exit 1
           fi
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-          cd "$PROJECT_DIR"
-          git config --global --add safe.directory "$PROJECT_DIR"
-          sudo git pull origin main
+          echo "name=$PROJECT_NAME" >> "$GITHUB_OUTPUT"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Project: $PROJECT_NAME at $PROJECT_DIR"
 
       - name: Rebuild and restart containers
         run: |
-          cd "${{ steps.setup.outputs.dir }}"
-          docker compose up -d --build noah-event-handler ses-event-handler
+          # Build from checkout (latest code), but use original project's
+          # .env and project name so containers replace existing ones
+          docker compose \
+            -p "${{ steps.setup.outputs.name }}" \
+            --env-file "${{ steps.setup.outputs.dir }}/.env" \
+            up -d --build noah-event-handler ses-event-handler
 
       - name: Sync config into volumes
         run: |
-          cd "${{ steps.setup.outputs.dir }}"
           # Named config volumes shadow the image's /app/config/ —
           # copy any new config files the image added but volumes don't have
           for CONTAINER in clawforge-noah clawforge-ses; do
