@@ -43,8 +43,9 @@ cd /job
 mkdir -p /job/tmp
 
 # 6. Setup logs directory
-LOG_DIR="/job/logs/${JOB_ID}"
+export LOG_DIR="/job/logs/${JOB_ID}"
 mkdir -p "${LOG_DIR}"
+touch "${LOG_DIR}/gsd-invocations.jsonl"
 
 # 6b. Preflight check — verify environment before wasting claude tokens
 echo "=== PREFLIGHT ==="
@@ -123,6 +124,34 @@ printf '%s' "${FULL_PROMPT}" | claude -p \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
     2>&1 | tee "${LOG_DIR}/claude-output.json" || true
+
+# 12a. Generate observability.md from gsd-invocations.jsonl
+JSONL_FILE="${LOG_DIR}/gsd-invocations.jsonl"
+OBS_FILE="${LOG_DIR}/observability.md"
+
+INVOCATION_COUNT=0
+if [ -f "${JSONL_FILE}" ]; then
+    INVOCATION_COUNT=$(wc -l < "${JSONL_FILE}" | tr -d ' ')
+fi
+
+{
+  echo "# GSD Invocations — Job ${JOB_ID}"
+  echo ""
+  echo "**Job:** ${JOB_ID}"
+  echo "**Generated:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  echo "**Total invocations:** ${INVOCATION_COUNT}"
+  echo ""
+
+  if [ "${INVOCATION_COUNT}" -gt 0 ]; then
+    echo "## Invocations"
+    echo ""
+    echo "| # | Skill | Arguments | Timestamp |"
+    echo "|---|-------|-----------|-----------|"
+    jq -r --slurp 'to_entries[] | "| \(.key + 1) | `\(.value.skill)` | \(.value.args | .[0:80]) | \(.value.ts) |"' "${JSONL_FILE}"
+  else
+    echo "_No GSD skills were invoked in this job._"
+  fi
+} > "${OBS_FILE}"
 
 # 12. Commit all changes
 git add -A
