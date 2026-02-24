@@ -35,8 +35,20 @@ jobs:
             JOB_CONTENT=$(cat "logs/${JOB_ID}/job.md")
           fi
 
-          # Fetch the GitHub Actions run log (Docker container output)
-          RUN_LOG=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --log 2>/dev/null || echo "")
+          # Read claude-output.json if it was committed (more useful than full Actions log)
+          CLAUDE_OUTPUT=""
+          if [ -f "logs/${JOB_ID}/claude-output.json" ]; then
+            CLAUDE_OUTPUT=$(head -c 4000 "logs/${JOB_ID}/claude-output.json")
+          fi
+
+          # Fetch the GitHub Actions run log as fallback (truncate to last 2000 chars)
+          RUN_LOG=""
+          if [ -z "$CLAUDE_OUTPUT" ]; then
+            RUN_LOG=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --log 2>/dev/null | tail -c 2000 || echo "")
+          fi
+
+          # Combine: prefer claude output, fall back to run log
+          LOG_CONTENT="${CLAUDE_OUTPUT:-$RUN_LOG}"
 
           STATUS="${{ github.event.workflow_run.conclusion }}"
 
@@ -46,7 +58,7 @@ jobs:
             --arg status "$STATUS" \
             --arg job "$JOB_CONTENT" \
             --arg run_url "$RUN_URL" \
-            --arg log "$RUN_LOG" \
+            --arg log "$LOG_CONTENT" \
             '{
               job_id: $job_id,
               branch: $branch,
