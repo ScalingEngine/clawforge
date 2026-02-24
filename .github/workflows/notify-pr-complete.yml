@@ -77,7 +77,9 @@ jobs:
           # 4. Get PR status
           PR_STATUS=$(gh pr view "$PR_NUMBER" --json state --jq '.state' --repo "${{ github.repository }}" 2>/dev/null || echo "open")
 
-          # 5. Read log file (find .jsonl in logs/{jobId}/)
+          # 5. Read GSD invocation log (gsd-invocations.jsonl written by PostToolUse hook in job container)
+          # The hook (docker/job/hooks/gsd-invocations.js) appends one JSONL record per Skill tool invocation.
+          # This search finds it and sends the content in the notification payload's "log" field.
           LOG_CONTENT=""
           LOG_DIR="logs/${JOB_ID}"
           if [ -d "$LOG_DIR" ]; then
