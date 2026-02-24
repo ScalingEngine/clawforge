@@ -26,7 +26,7 @@ Four phases in strict dependency order: fix the broken entrypoint so `claude -p`
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Fix prompt delivery (stdin pipe), add preflight diagnostics + GSD runtime check, lock .env.vps
+- [x] 01-01-PLAN.md — Fix prompt delivery (stdin pipe), add preflight diagnostics + GSD runtime check, lock .env.vps
 - [ ] 01-02-PLAN.md — Add build-time GSD verification to Dockerfile, sync templates to match live files
 
 ### Phase 2: Output Observability
@@ -76,7 +76,7 @@ Phases execute in strict dependency order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Fix | 0/2 | Not started | - |
+| 1. Foundation Fix | 1/2 | In Progress | - |
 | 2. Output Observability | 0/2 | Not started | - |
 | 3. Test Harness | 0/1 | Not started | - |
 | 4. Instruction Hardening | 0/1 | Not started | - |

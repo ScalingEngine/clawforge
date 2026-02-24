@@ -7,15 +7,15 @@
 
 ### Foundation
 
-- [ ] **FOUND-01**: Job container receives non-empty prompt when `claude -p` executes (fix empty FULL_PROMPT bug)
-- [ ] **FOUND-02**: Entrypoint confirms HOME path and `~/.claude/commands/gsd/` exists before running `claude -p`
+- [x] **FOUND-01**: Job container receives non-empty prompt when `claude -p` executes (fix empty FULL_PROMPT bug)
+- [x] **FOUND-02**: Entrypoint confirms HOME path and `~/.claude/commands/gsd/` exists before running `claude -p`
 - [ ] **FOUND-03**: `templates/docker/job/Dockerfile` matches live `docker/job/Dockerfile` (includes GSD install)
 - [ ] **FOUND-04**: `templates/docker/job/entrypoint.sh` matches live `docker/job/entrypoint.sh` (includes Task,Skill in allowed tools)
 - [ ] **FOUND-05**: Docker build fails if GSD is not installed (build-time verification after `npx get-shit-done-cc` step)
 
 ### Observability
 
-- [ ] **OBSV-01**: Entrypoint echoes HOME, `which claude`, GSD path, and working directory before `claude -p` runs
+- [x] **OBSV-01**: Entrypoint echoes HOME, `which claude`, GSD path, and working directory before `claude -p` runs
 - [ ] **OBSV-02**: PostToolUse hook logs Skill invocations to `logs/{jobId}/gsd-invocations.jsonl`
 - [ ] **OBSV-03**: `notify-pr-complete.yml` correctly references output file extension (fix `.json`/`.jsonl` mismatch)
 
@@ -26,7 +26,7 @@
 
 ### Security
 
-- [ ] **SECR-01**: `.env.vps` added to `.gitignore` to prevent accidental credential commit
+- [x] **SECR-01**: `.env.vps` added to `.gitignore` to prevent accidental credential commit
 
 ## v2 Requirements
 
@@ -54,13 +54,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
 | FOUND-03 | Phase 1 | Pending |
 | FOUND-04 | Phase 1 | Pending |
 | FOUND-05 | Phase 1 | Pending |
-| OBSV-01 | Phase 1 | Pending |
-| SECR-01 | Phase 1 | Pending |
+| OBSV-01 | Phase 1 | Complete |
+| SECR-01 | Phase 1 | Complete |
 | OBSV-02 | Phase 2 | Pending |
 | OBSV-03 | Phase 2 | Pending |
 | TEST-01 | Phase 3 | Pending |
