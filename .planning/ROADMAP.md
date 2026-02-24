@@ -37,11 +37,11 @@ Plans:
   1. Every job PR contains a `gsd-invocations.jsonl` file (empty if no GSD calls were made)
   2. Every job PR contains an `observability.md` summarizing tool calls in plain English
   3. The Slack/Telegram notification for a completed job includes actual log content, not an empty field
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: Add PostToolUse hook for Skill logging and output parser that produces observability.md
-- [ ] 02-02: Fix notify-pr-complete.yml file extension mismatch and validate notification payload
+- [ ] 02-01-PLAN.md — PostToolUse hook for Skill logging, Dockerfile integration, entrypoint observability.md generation, template sync
+- [ ] 02-02-PLAN.md — Add clarifying comments to notify-pr-complete.yml documenting hook-to-notification dependency, sync template
 
 ### Phase 3: Test Harness
 **Goal**: An operator can run a single local Docker command that triggers a synthetic GSD job and gets a PASS/FAIL result proving whether GSD was invoked — no production credentials or Slack round-trips required
