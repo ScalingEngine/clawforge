@@ -58,6 +58,7 @@ When Archie or Epic receives a task, it should use GSD structured workflows (`/g
 | GSD installed globally in Docker image | Simpler than repo-level install, survives across job repos | -- Pending verification |
 | Template drift accepted for now | Live docker/ files were updated but templates weren't synced | -- Pending resolution |
 | Focus on verification before Max subscription | Need to prove current setup works before changing auth model | -- Pending |
+| Replaced advisory GSD language ("Default choice") with imperative ("MUST use Skill tool") in both instance AGENT.md files | Advisory language produces ~50% GSD invocation reliability per Phase 3 research. Fixture imperative language produces consistent invocations in test harness. Baseline pre-Phase-4: advisory language untested against live production runs (no live test run performed before edit). | TEST-02 satisfied |
 
 ---
 *Last updated: 2026-02-23 after initialization*
