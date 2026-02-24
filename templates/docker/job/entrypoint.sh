@@ -46,6 +46,40 @@ mkdir -p /job/tmp
 LOG_DIR="/job/logs/${JOB_ID}"
 mkdir -p "${LOG_DIR}"
 
+# 6b. Preflight check — verify environment before wasting claude tokens
+echo "=== PREFLIGHT ==="
+echo "HOME: ${HOME}"
+echo "claude path: $(which claude)"
+echo "GSD directory: ${HOME}/.claude/commands/gsd/"
+ls "${HOME}/.claude/commands/gsd/" 2>/dev/null || echo "WARNING: GSD directory not found"
+echo "Working directory: $(pwd)"
+echo "Job ID: ${JOB_ID}"
+
+# Verify GSD is present (fail-fast)
+if [ ! -d "${HOME}/.claude/commands/gsd/" ]; then
+    echo "ERROR: GSD not installed at ${HOME}/.claude/commands/gsd/" | tee "${LOG_DIR}/preflight.md"
+    exit 1
+fi
+
+# Write preflight artifact (committed with job output)
+cat > "${LOG_DIR}/preflight.md" << EOF
+# Preflight — Job ${JOB_ID}
+
+| Item | Value |
+|------|-------|
+| HOME | ${HOME} |
+| claude | $(which claude) |
+| GSD directory | ${HOME}/.claude/commands/gsd/ |
+| Working directory | $(pwd) |
+| Timestamp | $(date -u +"%Y-%m-%dT%H:%M:%SZ") |
+
+## GSD Commands Present
+
+$(ls "${HOME}/.claude/commands/gsd/")
+EOF
+
+echo "=== PREFLIGHT COMPLETE ==="
+
 # 7. Build system prompt from config files
 SYSTEM_PROMPT=""
 if [ -f "/job/config/SOUL.md" ]; then
@@ -75,7 +109,7 @@ fi
 echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md
 
 # 10. Determine allowed tools
-ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep}"
+ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep,Task,Skill}"
 
 # 11. Run Claude Code with job description
 FULL_PROMPT="# Your Job
@@ -83,11 +117,11 @@ FULL_PROMPT="# Your Job
 ${JOB_DESCRIPTION}"
 
 echo "Running Claude Code with job ${JOB_ID}..."
-claude -p \
+echo "FULL_PROMPT length: ${#FULL_PROMPT}"
+printf '%s' "${FULL_PROMPT}" | claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
-    "${FULL_PROMPT}" \
     2>&1 | tee "${LOG_DIR}/claude-output.json" || true
 
 # 12. Commit all changes

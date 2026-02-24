@@ -34,6 +34,14 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install GSD skills for Claude Code
+RUN npx get-shit-done-cc@latest --claude --global
+
+# Verify GSD installed successfully (fail build if missing)
+RUN test -d /root/.claude/commands/gsd/ && \
+    ls /root/.claude/commands/gsd/ | grep -q . || \
+    (echo "ERROR: GSD install failed — /root/.claude/commands/gsd/ missing or empty" && exit 1)
+
 # Create workspace and config directories
 RUN mkdir -p /workspace /workspace/.claude
 
