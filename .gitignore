@@ -40,3 +40,6 @@ temp/
 lib/chat/components/*.js
 !lib/chat/components/index.js
 lib/chat/components/ui/*.js
+
+# Test harness output artifacts (never commit test run results)
+tests/output/
