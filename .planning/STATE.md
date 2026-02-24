@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** When Archie or Epic receives a task, it uses GSD workflows by default, and operators can verify this from job logs
-**Current focus:** Phase 4 — Instruction Hardening (In Progress)
+**Current focus:** Milestone v1.0 complete — quick tasks
 
 ## Current Position
 
-Phase: 4 of 4 (Instruction Hardening)
-Plan: 1 of 1 in current phase -- COMPLETE
-Status: In Progress
-Last activity: 2026-02-24 — Completed 04-01-PLAN.md
+Phase: 4 of 4 (Instruction Hardening) — COMPLETE
+Milestone: v1.0 — All phases complete, audit passed
+Status: Complete
+Last activity: 2026-02-24 - Completed quick task 1: Epic Slack tag-only replies and audio transcription
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -76,8 +76,14 @@ None yet.
 - ~~PostToolUse `tool_name` value for Skill tool is not officially documented~~ — RESOLVED in 02-RESEARCH: confirmed `"Skill"` (capital S) from live transcript evidence
 - ~~`.env.vps` untracked in git with real credentials~~ — RESOLVED in 01-01: added to .gitignore
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Epic Slack tag-only replies and audio transcription | 2026-02-24 | 5e65c22 | [1-epic-slack-tag-only-replies-and-audio-tr](./quick/1-epic-slack-tag-only-replies-and-audio-tr/) |
+
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 04-01-PLAN.md (imperative GSD instruction hardening) -- Phase 4 plan 1 complete
-Resume file: .planning/phases/04-instruction-hardening/04-01-SUMMARY.md
+Stopped at: Completed quick task 1 — Epic Slack tag-only replies and audio transcription
+Resume file: .planning/quick/1-epic-slack-tag-only-replies-and-audio-tr/1-SUMMARY.md
