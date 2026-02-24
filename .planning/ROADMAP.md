@@ -64,10 +64,10 @@ Plans:
   1. AGENT.md for both instances uses imperative phrasing ("MUST use Skill tool") not advisory ("Default choice")
   2. A Phase 3 test run with the updated AGENT.md produces at least one GSD invocation in `gsd-invocations.jsonl`
   3. Documented baseline behavior (invocation rate) is recorded in PROJECT.md Key Decisions
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 04-01: Audit and rewrite AGENT.md for both instances based on Phase 3 evidence
+- [ ] 04-01-PLAN.md — Replace advisory GSD language with imperative in both AGENT.md files, document decision in PROJECT.md
 
 ## Progress
 
