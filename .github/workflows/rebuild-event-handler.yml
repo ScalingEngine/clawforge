@@ -1,0 +1,69 @@
+name: Rebuild Event Handlers
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'logs/**'
+      - 'docs/**'
+      - 'templates/**'
+      - 'docker/job/**'
+      - '*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: event-handler-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, clawforge]
+    timeout-minutes: 20
+    steps:
+      - name: Find project and pull latest
+        id: setup
+        run: |
+          PROJECT_DIR=$(docker inspect clawforge-noah --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || echo "")
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Could not find clawforge project directory from container labels"
+            exit 1
+          fi
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          cd "$PROJECT_DIR"
+          git pull origin main
+
+      - name: Rebuild and restart containers
+        run: |
+          cd "${{ steps.setup.outputs.dir }}"
+          docker compose up -d --build noah-event-handler ses-event-handler
+
+      - name: Sync config into volumes
+        run: |
+          cd "${{ steps.setup.outputs.dir }}"
+          # Named config volumes shadow the image's /app/config/ —
+          # copy any new config files the image added but volumes don't have
+          for CONTAINER in clawforge-noah clawforge-ses; do
+            for FILE in JOB_SUMMARY.md; do
+              if [ -f "config/$FILE" ]; then
+                docker cp "config/$FILE" "${CONTAINER}:/app/config/${FILE}"
+                echo "Copied $FILE -> $CONTAINER"
+              fi
+            done
+          done
+
+      - name: Health check
+        run: |
+          echo "Waiting for containers to stabilize..."
+          sleep 15
+          FAILED=0
+          for CONTAINER in clawforge-noah clawforge-ses; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "unknown")
+            echo "${CONTAINER}: ${STATUS}"
+            if [ "$STATUS" != "healthy" ]; then
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "Warning: not all containers healthy yet (may still be starting)"
+          fi
