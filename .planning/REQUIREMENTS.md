@@ -9,9 +9,9 @@
 
 - [x] **FOUND-01**: Job container receives non-empty prompt when `claude -p` executes (fix empty FULL_PROMPT bug)
 - [x] **FOUND-02**: Entrypoint confirms HOME path and `~/.claude/commands/gsd/` exists before running `claude -p`
-- [ ] **FOUND-03**: `templates/docker/job/Dockerfile` matches live `docker/job/Dockerfile` (includes GSD install)
-- [ ] **FOUND-04**: `templates/docker/job/entrypoint.sh` matches live `docker/job/entrypoint.sh` (includes Task,Skill in allowed tools)
-- [ ] **FOUND-05**: Docker build fails if GSD is not installed (build-time verification after `npx get-shit-done-cc` step)
+- [x] **FOUND-03**: `templates/docker/job/Dockerfile` matches live `docker/job/Dockerfile` (includes GSD install)
+- [x] **FOUND-04**: `templates/docker/job/entrypoint.sh` matches live `docker/job/entrypoint.sh` (includes Task,Skill in allowed tools)
+- [x] **FOUND-05**: Docker build fails if GSD is not installed (build-time verification after `npx get-shit-done-cc` step)
 
 ### Observability
 
@@ -56,9 +56,9 @@
 |-------------|-------|--------|
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Complete |
+| FOUND-04 | Phase 1 | Complete |
+| FOUND-05 | Phase 1 | Complete |
 | OBSV-01 | Phase 1 | Complete |
 | SECR-01 | Phase 1 | Complete |
 | OBSV-02 | Phase 2 | Pending |
