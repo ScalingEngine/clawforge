@@ -83,11 +83,11 @@ FULL_PROMPT="# Your Job
 ${JOB_DESCRIPTION}"
 
 echo "Running Claude Code with job ${JOB_ID}..."
-claude -p \
+echo "FULL_PROMPT length: ${#FULL_PROMPT}"
+printf '%s' "${FULL_PROMPT}" | claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
-    "${FULL_PROMPT}" \
     2>&1 | tee "${LOG_DIR}/claude-output.json" || true
 
 # 12. Commit all changes
