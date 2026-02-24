@@ -17,7 +17,7 @@
 
 - [x] **OBSV-01**: Entrypoint echoes HOME, `which claude`, GSD path, and working directory before `claude -p` runs
 - [x] **OBSV-02**: PostToolUse hook logs Skill invocations to `logs/{jobId}/gsd-invocations.jsonl`
-- [ ] **OBSV-03**: `notify-pr-complete.yml` correctly references output file extension (fix `.json`/`.jsonl` mismatch)
+- [x] **OBSV-03**: `notify-pr-complete.yml` correctly references output file extension (fix `.json`/`.jsonl` mismatch)
 
 ### Testing
 
@@ -62,7 +62,7 @@
 | OBSV-01 | Phase 1 | Complete |
 | SECR-01 | Phase 1 | Complete |
 | OBSV-02 | Phase 2 | Complete |
-| OBSV-03 | Phase 2 | Pending |
+| OBSV-03 | Phase 2 | Complete |
 | TEST-01 | Phase 3 | Pending |
 | TEST-02 | Phase 4 | Pending |
 
