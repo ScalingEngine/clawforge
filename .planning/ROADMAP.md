@@ -51,10 +51,10 @@ Plans:
   1. `tests/test-job.sh` exists and runs to completion with a local Docker build
   2. The test output produces a `tool-usage.json` that `validate-output.sh` can assert against
   3. `validate-output.sh` exits non-zero when no GSD calls are detected, and zero when GSD is confirmed
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 03-01: Build test harness (fixture job, runner script, validation script)
+- [ ] 03-01-PLAN.md — Create test harness: fixture files, bypass entrypoint, runner script, validation script, .gitignore update
 
 ### Phase 4: Instruction Hardening
 **Goal**: AGENT.md instructions for both Archie and Epic instances use imperative language that maximizes Skill tool invocation, informed by evidence from Phase 3 test runs
