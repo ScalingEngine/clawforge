@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** When Archie or Epic receives a task, it uses GSD workflows by default, and operators can verify this from job logs
-**Current focus:** Phase 2 — Output Observability (Complete)
+**Current focus:** Phase 3 — Test Harness (Complete)
 
 ## Current Position
 
-Phase: 2 of 4 (Output Observability) -- COMPLETE
-Plan: 2 of 2 in current phase
+Phase: 3 of 4 (Test Harness) -- COMPLETE
+Plan: 1 of 1 in current phase
 Status: Phase Complete
-Last activity: 2026-02-24 — Completed 02-02-PLAN.md
+Last activity: 2026-02-24 — Completed 03-01-PLAN.md
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 1 min
-- Total execution time: 0.08 hours
+- Total plans completed: 5
+- Average duration: 1.4 min
+- Total execution time: 0.12 hours
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [██████░░░░] 60%
 |-------|-------|-------|----------|
 | 1. Foundation Fix | 2/2 | 2 min | 1 min |
 | 2. Output Observability | 2/2 | 3 min | 1.5 min |
+| 3. Test Harness | 1/1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1 min), 01-02 (1 min), 02-01 (2 min), 02-02 (1 min)
+- Last 5 plans: 01-01 (1 min), 01-02 (1 min), 02-01 (2 min), 02-02 (1 min), 03-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -56,6 +57,10 @@ Recent decisions affecting current work:
 - [02-01]: Truncate hook args to 200 chars and observability table args to 80 chars for readability
 - [02-02]: Comment-only change to workflow; no functional logic modified
 - [02-02]: Byte-for-byte template sync also resolved pre-existing RUNNER_TEMP drift
+- [03-01]: Use dedicated test-entrypoint.sh bypass rather than modifying production entrypoint with test-mode flags
+- [03-01]: Bind-mount test-entrypoint.sh at runtime rather than copying into Docker image to avoid Dockerfile changes
+- [03-01]: Assert against gsd-invocations.jsonl (Phase 2 PostToolUse hook output) not tool-usage.json (never built)
+- [03-01]: Fixture AGENT.md uses imperative MUST language to maximize GSD invocation reliability
 
 ### Pending Todos
 
@@ -70,5 +75,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 02-02-PLAN.md (notify workflow documentation, template sync) -- Phase 2 complete
-Resume file: .planning/phases/02-output-observability/02-02-SUMMARY.md
+Stopped at: Completed 03-01-PLAN.md (local Docker test harness) -- Phase 3 complete
+Resume file: .planning/phases/03-test-harness/03-01-SUMMARY.md

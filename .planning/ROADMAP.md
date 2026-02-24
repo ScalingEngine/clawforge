@@ -6,9 +6,9 @@ Four phases in strict dependency order: fix the broken entrypoint so `claude -p`
 
 ## Phases
 
-- [ ] **Phase 1: Foundation Fix** - Fix broken entrypoint, harden environment, sync templates, lock credentials
-- [ ] **Phase 2: Output Observability** - Make GSD invocations visible in every job PR via hooks and output parsing
-- [ ] **Phase 3: Test Harness** - Local Docker test that proves the full GSD chain without production credentials
+- [x] **Phase 1: Foundation Fix** - Fix broken entrypoint, harden environment, sync templates, lock credentials
+- [x] **Phase 2: Output Observability** - Make GSD invocations visible in every job PR via hooks and output parsing
+- [x] **Phase 3: Test Harness** - Local Docker test that proves the full GSD chain without production credentials
 - [ ] **Phase 4: Instruction Hardening** - Tighten AGENT.md based on Phase 3 evidence
 
 ## Phase Details
@@ -54,7 +54,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 03-01-PLAN.md — Create test harness: fixture files, bypass entrypoint, runner script, validation script, .gitignore update
+- [x] 03-01-PLAN.md — Create test harness: fixture files, bypass entrypoint, runner script, validation script, .gitignore update
 
 ### Phase 4: Instruction Hardening
 **Goal**: AGENT.md instructions for both Archie and Epic instances use imperative language that maximizes Skill tool invocation, informed by evidence from Phase 3 test runs
@@ -76,7 +76,7 @@ Phases execute in strict dependency order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Fix | 1/2 | In Progress | - |
-| 2. Output Observability | 0/2 | Not started | - |
-| 3. Test Harness | 0/1 | Not started | - |
+| 1. Foundation Fix | 2/2 | Complete | 2026-02-24 |
+| 2. Output Observability | 2/2 | Complete | 2026-02-24 |
+| 3. Test Harness | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | 0/1 | Not started | - |
