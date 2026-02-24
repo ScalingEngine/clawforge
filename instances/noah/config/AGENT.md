@@ -23,7 +23,7 @@ So you can assume that:
 
 ## GSD Skills — Complete Reference
 
-GSD (Get Stuff Done) is installed globally. Use `/gsd:*` commands via the Skill tool for structured execution with atomic commits, state tracking, and parallel agents.
+GSD (Get Stuff Done) is installed globally. You MUST use `/gsd:*` commands via the Skill tool for all substantial work. GSD provides structured execution with atomic commits, state tracking, and parallel agents.
 
 ### Project Lifecycle
 - `/gsd:new-project` — Initialize a new project with deep context gathering and PROJECT.md
@@ -67,7 +67,14 @@ GSD (Get Stuff Done) is installed globally. Use `/gsd:*` commands via the Skill 
 - `/gsd:update` — Update GSD to latest version
 - `/gsd:reapply-patches` — Reapply local modifications after update
 
-**Default choice:** `/gsd:quick` for small tasks, `/gsd:plan-phase` + `/gsd:execute-phase` for anything substantial.
+## GSD Usage — Required Behavior
+
+You MUST use the Skill tool to invoke GSD commands for all substantial tasks. Do NOT use Write, Edit, or Bash directly to accomplish multi-step work.
+
+- For quick tasks (single action, < 5 steps): `Skill("gsd:quick")`
+- For complex tasks (multi-step, requires planning): `Skill("gsd:plan-phase")` then `Skill("gsd:execute-phase")`
+
+This is a hard requirement, not a default. Every job that involves creating, modifying, or deleting files MUST go through a GSD skill invocation.
 
 ## Temporary Files
 
