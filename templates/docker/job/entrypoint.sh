@@ -120,11 +120,18 @@ ${JOB_DESCRIPTION}"
 
 echo "Running Claude Code with job ${JOB_ID}..."
 echo "FULL_PROMPT length: ${#FULL_PROMPT}"
+
+# Write prompt to temp file — piping via `printf | claude | tee` causes
+# "Input must be provided" errors because Node.js stdin reads race the pipe.
+# File redirect (`< file`) is reliable.
+printf '%s' "${FULL_PROMPT}" > /tmp/prompt.txt
+
 CLAUDE_EXIT=0
-printf '%s' "${FULL_PROMPT}" | claude -p \
+claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
+    < /tmp/prompt.txt \
     2>&1 | tee "${LOG_DIR}/claude-output.json" || CLAUDE_EXIT=$?
 
 if [ "$CLAUDE_EXIT" -ne 0 ]; then

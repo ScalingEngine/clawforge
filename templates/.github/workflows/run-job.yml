@@ -34,6 +34,7 @@ jobs:
             IMAGE="scalingengine/clawforge:job-latest"
           fi
           echo "Using image: $IMAGE"
+          docker pull "$IMAGE"
 
           # Build SECRETS JSON from AGENT_* (excluding AGENT_LLM_*) secrets
           export SECRETS=$(echo "$ALL_SECRETS" | jq -c '
