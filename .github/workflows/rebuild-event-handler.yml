@@ -31,7 +31,8 @@ jobs:
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
           cd "$PROJECT_DIR"
-          git pull origin main
+          git config --global --add safe.directory "$PROJECT_DIR"
+          sudo git pull origin main
 
       - name: Rebuild and restart containers
         run: |
