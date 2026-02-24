@@ -9,7 +9,7 @@ Four phases in strict dependency order: fix the broken entrypoint so `claude -p`
 - [x] **Phase 1: Foundation Fix** - Fix broken entrypoint, harden environment, sync templates, lock credentials
 - [x] **Phase 2: Output Observability** - Make GSD invocations visible in every job PR via hooks and output parsing
 - [x] **Phase 3: Test Harness** - Local Docker test that proves the full GSD chain without production credentials
-- [ ] **Phase 4: Instruction Hardening** - Tighten AGENT.md based on Phase 3 evidence
+- [x] **Phase 4: Instruction Hardening** - Tighten AGENT.md based on Phase 3 evidence
 
 ## Phase Details
 
@@ -67,7 +67,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — Replace advisory GSD language with imperative in both AGENT.md files, document decision in PROJECT.md
+- [x] 04-01-PLAN.md — Replace advisory GSD language with imperative in both AGENT.md files, document decision in PROJECT.md
 
 ## Progress
 
@@ -79,4 +79,4 @@ Phases execute in strict dependency order: 1 → 2 → 3 → 4
 | 1. Foundation Fix | 2/2 | Complete | 2026-02-24 |
 | 2. Output Observability | 2/2 | Complete | 2026-02-24 |
 | 3. Test Harness | 1/1 | Complete | 2026-02-24 |
-| 4. Instruction Hardening | 0/1 | Not started | - |
+| 4. Instruction Hardening | 1/1 | Complete | 2026-02-24 |

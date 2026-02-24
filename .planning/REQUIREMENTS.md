@@ -22,7 +22,7 @@
 ### Testing
 
 - [x] **TEST-01**: A synthetic test job can be triggered that invokes `/gsd:quick` and proves the full chain works
-- [ ] **TEST-02**: AGENT.md uses imperative language for GSD usage ("MUST use Skill tool for tasks") not advisory ("Default choice")
+- [x] **TEST-02**: AGENT.md uses imperative language for GSD usage ("MUST use Skill tool for tasks") not advisory ("Default choice")
 
 ### Security
 
@@ -64,7 +64,7 @@
 | OBSV-02 | Phase 2 | Complete |
 | OBSV-03 | Phase 2 | Complete |
 | TEST-01 | Phase 3 | Complete |
-| TEST-02 | Phase 4 | Pending |
+| TEST-02 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
@@ -73,4 +73,4 @@
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 after roadmap creation*
+*Last updated: 2026-02-24 after Phase 4 Plan 01 completion*

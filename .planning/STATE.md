@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** When Archie or Epic receives a task, it uses GSD workflows by default, and operators can verify this from job logs
-**Current focus:** Phase 3 — Test Harness (Complete)
+**Current focus:** Phase 4 — Instruction Hardening (In Progress)
 
 ## Current Position
 
-Phase: 3 of 4 (Test Harness) -- COMPLETE
-Plan: 1 of 1 in current phase
-Status: Phase Complete
-Last activity: 2026-02-24 — Completed 03-01-PLAN.md
+Phase: 4 of 4 (Instruction Hardening)
+Plan: 1 of 1 in current phase -- COMPLETE
+Status: In Progress
+Last activity: 2026-02-24 — Completed 04-01-PLAN.md
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 1.4 min
-- Total execution time: 0.12 hours
+- Total plans completed: 6
+- Average duration: 1.3 min
+- Total execution time: 0.13 hours
 
 **By Phase:**
 
@@ -30,9 +30,10 @@ Progress: [████████░░] 80%
 | 1. Foundation Fix | 2/2 | 2 min | 1 min |
 | 2. Output Observability | 2/2 | 3 min | 1.5 min |
 | 3. Test Harness | 1/1 | 2 min | 2 min |
+| 4. Instruction Hardening | 1/1 | 1 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1 min), 01-02 (1 min), 02-01 (2 min), 02-02 (1 min), 03-01 (2 min)
+- Last 5 plans: 01-02 (1 min), 02-01 (2 min), 02-02 (1 min), 03-01 (2 min), 04-01 (1 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -61,6 +62,9 @@ Recent decisions affecting current work:
 - [03-01]: Bind-mount test-entrypoint.sh at runtime rather than copying into Docker image to avoid Dockerfile changes
 - [03-01]: Assert against gsd-invocations.jsonl (Phase 2 PostToolUse hook output) not tool-usage.json (never built)
 - [03-01]: Fixture AGENT.md uses imperative MUST language to maximize GSD invocation reliability
+- [04-01]: Replaced advisory "Default choice" GSD language with imperative "MUST use Skill tool" block in both production AGENT.md files
+- [04-01]: Added named "GSD Usage — Required Behavior" section to make behavioral mandate structurally distinct from command reference
+- [04-01]: Baseline documented as untested against live runs — ~50% figure is community research (LOW confidence), not measured production data
 
 ### Pending Todos
 
@@ -75,5 +79,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 03-01-PLAN.md (local Docker test harness) -- Phase 3 complete
-Resume file: .planning/phases/03-test-harness/03-01-SUMMARY.md
+Stopped at: Completed 04-01-PLAN.md (imperative GSD instruction hardening) -- Phase 4 plan 1 complete
+Resume file: .planning/phases/04-instruction-hardening/04-01-SUMMARY.md
