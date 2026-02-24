@@ -64,7 +64,7 @@ Plans:
   1. AGENT.md for both instances uses imperative phrasing ("MUST use Skill tool") not advisory ("Default choice")
   2. A Phase 3 test run with the updated AGENT.md produces at least one GSD invocation in `gsd-invocations.jsonl`
   3. Documented baseline behavior (invocation rate) is recorded in PROJECT.md Key Decisions
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 04-01-PLAN.md — Replace advisory GSD language with imperative in both AGENT.md files, document decision in PROJECT.md
@@ -79,4 +79,4 @@ Phases execute in strict dependency order: 1 → 2 → 3 → 4
 | 1. Foundation Fix | 2/2 | Complete | 2026-02-24 |
 | 2. Output Observability | 2/2 | Complete | 2026-02-24 |
 | 3. Test Harness | 1/1 | Complete | 2026-02-24 |
-| 4. Instruction Hardening | 1/1 | Complete | 2026-02-24 |
+| 4. Instruction Hardening | 1/1 | Complete    | 2026-02-24 |
