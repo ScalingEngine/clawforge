@@ -42,6 +42,25 @@ RUN test -d /root/.claude/commands/gsd/ && \
     ls /root/.claude/commands/gsd/ | grep -q . || \
     (echo "ERROR: GSD install failed — /root/.claude/commands/gsd/ missing or empty" && exit 1)
 
+# Install PostToolUse hook for GSD invocation observability
+RUN mkdir -p /root/.claude/hooks
+COPY hooks/gsd-invocations.js /root/.claude/hooks/gsd-invocations.js
+RUN chmod +x /root/.claude/hooks/gsd-invocations.js
+# Merge hook settings into settings.json (preserves any existing GSD config)
+RUN node -e "\
+  const fs = require('fs'); \
+  const settingsPath = '/root/.claude/settings.json'; \
+  let existing = {}; \
+  try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch(e) {} \
+  existing.hooks = existing.hooks || {}; \
+  existing.hooks.PostToolUse = existing.hooks.PostToolUse || []; \
+  existing.hooks.PostToolUse.push({ \
+    matcher: 'Skill', \
+    hooks: [{ type: 'command', command: 'node /root/.claude/hooks/gsd-invocations.js' }] \
+  }); \
+  fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2)); \
+"
+
 # Create workspace and config directories
 RUN mkdir -p /workspace /workspace/.claude
 
