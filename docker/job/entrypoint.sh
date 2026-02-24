@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 # 1. Extract job ID from branch name
 if [[ "$BRANCH" == job/* ]]; then
@@ -119,11 +120,16 @@ ${JOB_DESCRIPTION}"
 
 echo "Running Claude Code with job ${JOB_ID}..."
 echo "FULL_PROMPT length: ${#FULL_PROMPT}"
+CLAUDE_EXIT=0
 printf '%s' "${FULL_PROMPT}" | claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
-    2>&1 | tee "${LOG_DIR}/claude-output.json" || true
+    2>&1 | tee "${LOG_DIR}/claude-output.json" || CLAUDE_EXIT=$?
+
+if [ "$CLAUDE_EXIT" -ne 0 ]; then
+    echo "Claude Code exited with code ${CLAUDE_EXIT}"
+fi
 
 # 12a. Generate observability.md from gsd-invocations.jsonl
 JSONL_FILE="${LOG_DIR}/gsd-invocations.jsonl"
@@ -153,16 +159,19 @@ fi
   fi
 } > "${OBS_FILE}"
 
-# 12. Commit all changes
+# 12. Commit all changes (even on failure — logs are useful for debugging)
 git add -A
 git add -f "${LOG_DIR}" || true
 git commit -m "clawforge: job ${JOB_ID}" || true
 git push origin || true
 
-# 13. Create PR
-gh pr create \
-    --title "clawforge: job ${JOB_ID}" \
-    --body "Automated job by ClawForge" \
-    --base main || true
+# 13. Create PR only if Claude succeeded (failed jobs trigger notify-job-failed instead)
+if [ "$CLAUDE_EXIT" -eq 0 ]; then
+    gh pr create \
+        --title "clawforge: job ${JOB_ID}" \
+        --body "Automated job by ClawForge" \
+        --base main || true
+fi
 
-echo "Done. Job ID: ${JOB_ID}"
+echo "Done. Job ID: ${JOB_ID} (exit: ${CLAUDE_EXIT})"
+exit $CLAUDE_EXIT
