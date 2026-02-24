@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** When Archie or Epic receives a task, it uses GSD workflows by default, and operators can verify this from job logs
-**Current focus:** Phase 1 — Foundation Fix
+**Current focus:** Phase 2 — Output Observability
 
 ## Current Position
 
-Phase: 1 of 4 (Foundation Fix)
-Plan: 2 of 2 in current phase
-Status: Phase Complete
-Last activity: 2026-02-24 — Completed 01-02-PLAN.md
+Phase: 2 of 4 (Output Observability)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-24 — Completed 02-01-PLAN.md
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 3
 - Average duration: 1 min
-- Total execution time: 0.03 hours
+- Total execution time: 0.07 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Foundation Fix | 2/2 | 2 min | 1 min |
+| 2. Output Observability | 1/2 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1 min), 01-02 (1 min)
+- Last 5 plans: 01-01 (1 min), 01-02 (1 min), 02-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -50,6 +51,9 @@ Recent decisions affecting current work:
 - [01-01]: Use ${HOME} not /root/ in entrypoint for future-proofing against USER directive changes
 - [01-02]: Use /root/ (not ${HOME}) in Dockerfile RUN for build-time assertion since Docker build always runs as root
 - [01-02]: Byte-for-byte copy for template sync rather than manual edits to guarantee zero drift
+- [02-01]: Use node -e merge approach in Dockerfile for settings.json to avoid overwriting GSD config
+- [02-01]: Touch empty gsd-invocations.jsonl before claude runs so file always exists in PR
+- [02-01]: Truncate hook args to 200 chars and observability table args to 80 chars for readability
 
 ### Pending Todos
 
@@ -58,11 +62,11 @@ None yet.
 ### Blockers/Concerns
 
 - ~~Both recorded production job runs show "Input must be provided" error~~ — RESOLVED in 01-01: fixed via stdin pipe
-- PostToolUse `tool_name` value for Skill tool is not officially documented — validate with `--verbose` during Phase 1 test run before writing Phase 2 hook matcher
+- ~~PostToolUse `tool_name` value for Skill tool is not officially documented~~ — RESOLVED in 02-RESEARCH: confirmed `"Skill"` (capital S) from live transcript evidence
 - ~~`.env.vps` untracked in git with real credentials~~ — RESOLVED in 01-01: added to .gitignore
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 01-02-PLAN.md (build-time GSD verification, template sync)
-Resume file: .planning/phases/01-foundation-fix/01-02-SUMMARY.md
+Stopped at: Completed 02-01-PLAN.md (PostToolUse hook, Dockerfile integration, observability.md generation, template sync)
+Resume file: .planning/phases/02-output-observability/02-01-SUMMARY.md
