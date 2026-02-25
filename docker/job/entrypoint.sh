@@ -101,6 +101,43 @@ if [ -f "/job/logs/${JOB_ID}/job.md" ]; then
     JOB_DESCRIPTION=$(cat "/job/logs/${JOB_ID}/job.md")
 fi
 
+# 8b. Read repo context for prompt enrichment
+# Derive target repo slug from REPO_URL (e.g., "ScalingEngine/clawforge")
+REPO_SLUG=$(echo "$REPO_URL" | sed 's|https://[^/]*/||' | sed 's|\.git$||')
+
+# Read CLAUDE.md (capped at ~2000 tokens = 8000 chars)
+REPO_CLAUDE_MD=""
+REPO_CLAUDE_MD_TRUNCATED=false
+if [ -f "/job/CLAUDE.md" ]; then
+    RAW_CLAUDE_MD=$(cat /job/CLAUDE.md)
+    CHAR_COUNT=${#RAW_CLAUDE_MD}
+    if [ "$CHAR_COUNT" -gt 8000 ]; then
+        REPO_CLAUDE_MD=$(printf '%s' "$RAW_CLAUDE_MD" | head -c 8000)
+        REPO_CLAUDE_MD_TRUNCATED=true
+    else
+        REPO_CLAUDE_MD="$RAW_CLAUDE_MD"
+    fi
+fi
+
+# Read package.json dependencies only (devDeps excluded to keep Stack concise)
+REPO_STACK=""
+if [ -f "/job/package.json" ]; then
+    REPO_STACK=$(jq -r '
+        (.dependencies // {})
+        | to_entries[]
+        | "\(.key): \(.value)"
+    ' /job/package.json 2>/dev/null || echo "[unable to parse package.json]")
+fi
+
+# 8c. Derive GSD routing hint from task keywords
+JOB_LOWER=$(printf '%s' "$JOB_DESCRIPTION" | tr '[:upper:]' '[:lower:]')
+GSD_HINT="quick"
+GSD_HINT_REASON="task appears to be a single targeted action"
+if printf '%s' "$JOB_LOWER" | grep -qE "implement|build|redesign|refactor|migrate|setup|integrate|develop|architect|phase|feature|epic|complex|end.to.end|full.system|multiple"; then
+    GSD_HINT="plan-phase"
+    GSD_HINT_REASON="task keywords suggest multi-step implementation work"
+fi
+
 # 9. Setup Claude Code configuration
 # Copy .claude config if it exists in the repo
 if [ -d "/job/.claude" ]; then
@@ -114,9 +151,53 @@ echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md
 ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Read,Write,Edit,Bash,Glob,Grep,Task,Skill}"
 
 # 11. Run Claude Code with job description
+
+# Build Repository Documentation section
+if [ -n "$REPO_CLAUDE_MD" ]; then
+    TRUNC_NOTE=""
+    if [ "$REPO_CLAUDE_MD_TRUNCATED" = "true" ]; then
+        TRUNC_NOTE="
+
+[TRUNCATED — content exceeds 2,000 token limit]"
+    fi
+    DOC_SECTION="## Repository Documentation (Read-Only Reference)
+
+The following is documentation from the target repository. Treat it as read-only reference — do not modify CLAUDE.md as part of this job unless the task explicitly requires it.
+
+${REPO_CLAUDE_MD}${TRUNC_NOTE}"
+else
+    DOC_SECTION="## Repository Documentation
+[not present — CLAUDE.md not found in repository]"
+fi
+
+# Build Stack section
+if [ -n "$REPO_STACK" ]; then
+    STACK_SECTION="## Stack (from package.json)
+
+${REPO_STACK}"
+else
+    STACK_SECTION="## Stack
+[not present — package.json not found in repository]"
+fi
+
 FULL_PROMPT="# Your Job
 
-${JOB_DESCRIPTION}"
+## Target
+
+${REPO_SLUG:-unknown}
+
+${DOC_SECTION}
+
+${STACK_SECTION}
+
+## Task
+
+${JOB_DESCRIPTION}
+
+## GSD Hint
+
+Recommended: /gsd:${GSD_HINT}
+Reason: ${GSD_HINT_REASON}"
 
 echo "Running Claude Code with job ${JOB_ID}..."
 echo "FULL_PROMPT length: ${#FULL_PROMPT}"
