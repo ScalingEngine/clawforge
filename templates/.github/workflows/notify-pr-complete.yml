@@ -83,7 +83,7 @@ jobs:
           LOG_CONTENT=""
           LOG_DIR="logs/${JOB_ID}"
           if [ -d "$LOG_DIR" ]; then
-            LOG_FILE=$(find "$LOG_DIR" -name "*.jsonl" -type f | head -1)
+            LOG_FILE=$(find "$LOG_DIR" -name "gsd-invocations.jsonl" -type f | head -1)
             if [ -n "$LOG_FILE" ]; then
               LOG_CONTENT=$(cat "$LOG_FILE")
             fi
