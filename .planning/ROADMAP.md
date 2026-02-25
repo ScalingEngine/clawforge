@@ -103,7 +103,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md — Add repo context reads (CLAUDE.md + package.json), GSD routing hint, and structured FULL_PROMPT template to entrypoint.sh, then sync template
+- [x] 06-01-PLAN.md — Add repo context reads (CLAUDE.md + package.json), GSD routing hint, and structured FULL_PROMPT template to entrypoint.sh, then sync template
 
 #### Phase 7: Previous Job Context
 
@@ -118,7 +118,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Add job_outcomes schema, DB helpers, Drizzle migration, and webhook persistence
+- [x] 07-01-PLAN.md — Add job_outcomes schema, DB helpers, Drizzle migration, and webhook persistence
 - [ ] 07-02-PLAN.md — Enrich createJobTool with prior merged job context lookup and injection
 
 ## Progress
@@ -133,5 +133,5 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 3. Test Harness | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
-| 6. Smart Job Prompts | 1/1 | Complete    | 2026-02-25 | - |
-| 7. Previous Job Context | v1.1 | 0/2 | Not started | - |
+| 6. Smart Job Prompts | v1.1 | 1/1 | Complete | 2026-02-25 |
+| 7. Previous Job Context | v1.1 | 1/2 | In progress | - |

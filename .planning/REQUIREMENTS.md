@@ -47,10 +47,10 @@
 
 ### Previous Job Context
 
-- [ ] **HIST-01**: `job_outcomes` table persists job completion data (status, changed files, PR URL, log summary) on webhook receipt
+- [x] **HIST-01**: `job_outcomes` table persists job completion data (status, changed files, PR URL, log summary) on webhook receipt
 - [ ] **HIST-02**: Follow-up job descriptions include prior job summary when the previous PR on the same thread was merged
 - [ ] **HIST-03**: Previous job context injection is gated on `merge_result == "merged"` to prevent false continuity
-- [ ] **HIST-04**: Previous job context lookups are scoped by thread ID for instance isolation
+- [x] **HIST-04**: Previous job context lookups are scoped by thread ID for instance isolation
 
 ## Future Requirements
 

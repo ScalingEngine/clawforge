@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Milestone v1.1 — Phase 6: Smart Job Prompts
+**Current focus:** Milestone v1.1 — Phase 7: Previous Job Context
 
 ## Current Position
 
-Phase: 6 of 7 (Smart Job Prompts)
-Plan: 1 of 1 in current phase
-Status: Phase complete — plan 06-01 executed
-Last activity: 2026-02-25 — Completed 06-01 (structured FULL_PROMPT with repo context injection)
+Phase: 7 of 7 (Previous Job Context)
+Plan: 1 of 2 in current phase
+Status: Plan 07-01 complete — job_outcomes persistence layer built
+Last activity: 2026-02-25 — Completed 07-01 (jobOutcomes schema, DB helpers, webhook integration)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9 (6 v1.0 + 3 v1.1)
+- Total plans completed: 10 (6 v1.0 + 4 v1.1)
 - Average duration: 1.4 min
-- Total execution time: 0.21 hours
+- Total execution time: 0.22 hours
 
 **By Phase:**
 
@@ -33,9 +33,10 @@ Progress: [██████████] 100%
 | 4. Instruction Hardening | 1/1 | 1 min | 1 min |
 | 5. Pipeline Hardening | 2/2 | 4 min | 2 min |
 | 6. Smart Job Prompts | 1/1 | 5 min | 5 min |
+| 7. Previous Job Context | 1/2 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (2 min), 04-01 (1 min), 05-01 (2 min), 05-02 (2 min), 06-01 (5 min)
+- Last 5 plans: 04-01 (1 min), 05-01 (2 min), 05-02 (2 min), 06-01 (5 min), 07-01 (2 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -47,6 +48,10 @@ Progress: [██████████] 100%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [07-01]: jobOutcomes uses UUID PK (not jobId) to allow multiple outcomes per job
+- [07-01]: changedFiles stored as JSON string in TEXT column — no JOIN needed
+- [07-01]: saveJobOutcome wrapped in try/catch in webhook handler — DB failures never block notifications
+- [07-01]: getLastMergedJobOutcome filters mergeResult='merged' at query level (HIST-03), scoped by threadId (HIST-04)
 - [06-01]: CLAUDE.md injected at entrypoint side via cat /job/CLAUDE.md, capped at 8000 chars (~2000 tokens), with Read-Only Reference framing
 - [06-01]: GSD hint defaults to 'quick', upgrades to 'plan-phase' on keywords: implement|build|redesign|refactor|migrate|setup|integrate|develop|architect|phase|feature|epic|complex|end.to.end|full.system|multiple
 - [06-01]: Dependencies only (not devDependencies) in Stack section — keeps prompt concise for large repos
@@ -65,10 +70,10 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- [Phase 7]: Confirm `notify-pr-complete.yml` live webhook payload field names before generating Drizzle migration — inspect a real webhook payload during Phase 5/6 testing to avoid a re-migration
+- [Phase 7 - RESOLVED]: Confirm `notify-pr-complete.yml` live webhook payload field names — payload fields confirmed via existing handleGithubWebhook code (job_id, status, merge_result, pr_url, changed_files)
 
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 06-01 (structured FULL_PROMPT with repo context injection) — Phase 6 complete
+Stopped at: Completed 07-01 (job_outcomes persistence layer) — ready for 07-02 (agent context injection)
 Resume file: None
