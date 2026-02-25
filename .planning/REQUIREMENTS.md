@@ -48,8 +48,8 @@
 ### Previous Job Context
 
 - [x] **HIST-01**: `job_outcomes` table persists job completion data (status, changed files, PR URL, log summary) on webhook receipt
-- [ ] **HIST-02**: Follow-up job descriptions include prior job summary when the previous PR on the same thread was merged
-- [ ] **HIST-03**: Previous job context injection is gated on `merge_result == "merged"` to prevent false continuity
+- [x] **HIST-02**: Follow-up job descriptions include prior job summary when the previous PR on the same thread was merged
+- [x] **HIST-03**: Previous job context injection is gated on `merge_result == "merged"` to prevent false continuity
 - [x] **HIST-04**: Previous job context lookups are scoped by thread ID for instance isolation
 
 ## Future Requirements
@@ -108,9 +108,9 @@
 | PROMPT-03 | Phase 6 (v1.1) | Complete |
 | PROMPT-04 | Phase 6 (v1.1) | Complete |
 | HIST-01 | Phase 7 (v1.1) | Pending |
-| HIST-02 | Phase 7 (v1.1) | Pending |
-| HIST-03 | Phase 7 (v1.1) | Pending |
-| HIST-04 | Phase 7 (v1.1) | Pending |
+| HIST-02 | Phase 7 (v1.1) | Complete |
+| HIST-03 | Phase 7 (v1.1) | Complete |
+| HIST-04 | Phase 7 (v1.1) | Complete |
 
 **Coverage:**
 - v1.0 requirements: 11 total — 11 complete

@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Milestone v1.1 — Phase 7: Previous Job Context
+**Current focus:** Milestone v1.1 COMPLETE — all 7 phases delivered
 
 ## Current Position
 
-Phase: 7 of 7 (Previous Job Context)
-Plan: 1 of 2 in current phase
-Status: Plan 07-01 complete — job_outcomes persistence layer built
-Last activity: 2026-02-25 — Completed 07-01 (jobOutcomes schema, DB helpers, webhook integration)
+Phase: 7 of 7 (Previous Job Context) — COMPLETE
+Plan: 2 of 2 in current phase — COMPLETE
+Status: Plan 07-02 complete — agent context injection built; Milestone v1.1 complete
+Last activity: 2026-02-25 — Completed 07-02 (prior job context enrichment in createJobTool)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10 (6 v1.0 + 4 v1.1)
+- Total plans completed: 11 (6 v1.0 + 5 v1.1)
 - Average duration: 1.4 min
-- Total execution time: 0.22 hours
+- Total execution time: 0.25 hours
 
 **By Phase:**
 
@@ -33,13 +33,14 @@ Progress: [██████████] 100%
 | 4. Instruction Hardening | 1/1 | 1 min | 1 min |
 | 5. Pipeline Hardening | 2/2 | 4 min | 2 min |
 | 6. Smart Job Prompts | 1/1 | 5 min | 5 min |
-| 7. Previous Job Context | 1/2 | 2 min | 2 min |
+| 7. Previous Job Context | 2/2 | 5 min | 2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-01 (1 min), 05-01 (2 min), 05-02 (2 min), 06-01 (5 min), 07-01 (2 min)
+- Last 5 plans: 05-01 (2 min), 05-02 (2 min), 06-01 (5 min), 07-01 (2 min), 07-02 (3 min)
 - Trend: stable
 
 *Updated after each plan completion*
+| Phase 07-previous-job-context P02 | 3 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,9 @@ Recent decisions affecting current work:
 - [v1.1 roadmap]: Phase 5 first — no new code paths, pure workflow fixes; establishes reliable test baseline before additive features
 - [v1.1 roadmap]: Phase 6 context fetch via entrypoint-side reads (cat /job/CLAUDE.md) not Event Handler pre-fetch — confirmed fresher and simpler
 - [v1.1 roadmap]: Phase 7 scopes all job_outcomes lookups by thread_id for instance isolation (not repo-scoped)
+- [Phase 07-02]: threadId extracted before createJob call so enrichment runs before job is dispatched
+- [Phase 07-02]: Non-fatal try/catch around prior context lookup — DB errors never block job creation
+- [Phase 07-02]: Prior context prepended as markdown ## Prior Job Context section with --- separator for clear LLM delineation
 
 ### Pending Todos
 
@@ -75,5 +79,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 07-01 (job_outcomes persistence layer) — ready for 07-02 (agent context injection)
+Stopped at: Completed 07-02 (agent context injection) — Milestone v1.1 complete
 Resume file: None
