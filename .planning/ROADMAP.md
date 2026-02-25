@@ -115,10 +115,11 @@ Plans:
   2. A follow-up job description in the same thread includes a prior job summary section when the previous PR was merged
   3. A follow-up job description does NOT include prior context when the previous PR was not merged
   4. Previous job lookups return only results scoped to the current thread ID, with no cross-instance leakage
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — TBD
+- [ ] 07-01-PLAN.md — Add job_outcomes schema, DB helpers, Drizzle migration, and webhook persistence
+- [ ] 07-02-PLAN.md — Enrich createJobTool with prior merged job context lookup and injection
 
 ## Progress
 
@@ -133,4 +134,4 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 6. Smart Job Prompts | 1/1 | Complete    | 2026-02-25 | - |
-| 7. Previous Job Context | v1.1 | 0/? | Not started | - |
+| 7. Previous Job Context | v1.1 | 0/2 | Not started | - |
