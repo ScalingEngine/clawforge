@@ -6,6 +6,7 @@ on:
 jobs:
   run-agent:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    timeout-minutes: 30
     if: github.ref_type == 'branch' && startsWith(github.ref_name, 'job/')
     permissions:
       contents: write
