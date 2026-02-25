@@ -107,7 +107,7 @@
 | PROMPT-02 | Phase 6 (v1.1) | Complete |
 | PROMPT-03 | Phase 6 (v1.1) | Complete |
 | PROMPT-04 | Phase 6 (v1.1) | Complete |
-| HIST-01 | Phase 7 (v1.1) | Pending |
+| HIST-01 | Phase 7 (v1.1) | Complete |
 | HIST-02 | Phase 7 (v1.1) | Complete |
 | HIST-03 | Phase 7 (v1.1) | Complete |
 | HIST-04 | Phase 7 (v1.1) | Complete |
