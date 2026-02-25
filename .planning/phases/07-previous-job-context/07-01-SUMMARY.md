@@ -30,6 +30,7 @@ metrics:
   tasks_completed: 2
   files_changed: 6
 requirements: [HIST-01, HIST-04]
+requirements-completed: [HIST-01, HIST-04]
 ---
 
 # Phase 7 Plan 01: Job Outcomes Persistence Layer Summary
