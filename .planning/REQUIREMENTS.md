@@ -32,10 +32,10 @@
 
 ### Pipeline Hardening
 
-- [ ] **PIPE-01**: Job container creates PR only when Claude exits successfully and commits exist on the job branch
+- [x] **PIPE-01**: Job container creates PR only when Claude exits successfully and commits exist on the job branch
 - [ ] **PIPE-02**: Failed job notifications include failure stage categorization (docker_pull/auth/claude) with relevant log excerpt
-- [ ] **PIPE-03**: `notify-job-failed.yml` reads `claude-output.jsonl` (not `.json`) for failure log content
-- [ ] **PIPE-04**: `run-job.yml` enforces `timeout-minutes` to prevent runner lock-up on hung jobs
+- [x] **PIPE-03**: `notify-job-failed.yml` reads `claude-output.jsonl` (not `.json`) for failure log content
+- [x] **PIPE-04**: `run-job.yml` enforces `timeout-minutes` to prevent runner lock-up on hung jobs
 - [ ] **PIPE-05**: All workflow templates in `templates/.github/workflows/` are byte-for-byte synced with live workflows
 
 ### Smart Job Prompts
@@ -98,10 +98,10 @@
 | OBSV-03 | Phase 2 (v1.0) | Complete |
 | TEST-01 | Phase 3 (v1.0) | Complete |
 | TEST-02 | Phase 4 (v1.0) | Complete |
-| PIPE-01 | Phase 5 (v1.1) | Pending |
+| PIPE-01 | Phase 5 (v1.1) | Complete |
 | PIPE-02 | Phase 5 (v1.1) | Pending |
-| PIPE-03 | Phase 5 (v1.1) | Pending |
-| PIPE-04 | Phase 5 (v1.1) | Pending |
+| PIPE-03 | Phase 5 (v1.1) | Complete |
+| PIPE-04 | Phase 5 (v1.1) | Complete |
 | PIPE-05 | Phase 5 (v1.1) | Pending |
 | PROMPT-01 | Phase 6 (v1.1) | Pending |
 | PROMPT-02 | Phase 6 (v1.1) | Pending |
