@@ -83,10 +83,11 @@ Plans:
   3. The `notify-job-failed.yml` workflow reads `claude-output.jsonl` (not `.json`) without a file-not-found error
   4. A job that runs indefinitely is terminated after the configured timeout and triggers failure notification
   5. All three workflow files in `templates/.github/workflows/` are byte-for-byte identical to their live counterparts
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — TBD
+- [ ] 05-01-PLAN.md — Zero-commit PR guard, rename output to .jsonl, add runner timeout
+- [ ] 05-02-PLAN.md — Failure stage categorization in notifications, template sync
 
 #### Phase 6: Smart Job Prompts
 
@@ -130,6 +131,6 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 2. Output Observability | v1.0 | 2/2 | Complete | 2026-02-24 |
 | 3. Test Harness | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
-| 5. Pipeline Hardening | v1.1 | 0/? | Not started | - |
+| 5. Pipeline Hardening | v1.1 | 0/2 | Not started | - |
 | 6. Smart Job Prompts | v1.1 | 0/? | Not started | - |
 | 7. Previous Job Context | v1.1 | 0/? | Not started | - |
