@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-23)
+See: .planning/PROJECT.md (updated 2026-02-24)
 
-**Core value:** When Archie or Epic receives a task, it uses GSD workflows by default, and operators can verify this from job logs
-**Current focus:** Milestone v1.0 complete — quick tasks
+**Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
+**Current focus:** Milestone v1.1 — Agent Intelligence & Pipeline Hardening
 
 ## Current Position
 
-Phase: 4 of 4 (Instruction Hardening) — COMPLETE
-Milestone: v1.0 — All phases complete, audit passed
-Status: Complete
-Last activity: 2026-02-24 - Completed quick task 1: Epic Slack tag-only replies and audio transcription
+Phase: Not started (defining requirements)
+Milestone: v1.1 — Agent Intelligence & Pipeline Hardening
+Status: Defining requirements
+Last activity: 2026-02-24 — Milestone v1.1 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
