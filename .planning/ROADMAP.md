@@ -119,12 +119,30 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md — Add job_outcomes schema, DB helpers, Drizzle migration, and webhook persistence
-- [ ] 07-02-PLAN.md — Enrich createJobTool with prior merged job context lookup and injection
+- [x] 07-02-PLAN.md — Enrich createJobTool with prior merged job context lookup and injection
+
+#### Phase 8: Polish & Test Sync
+
+**Goal**: Close integration gaps and tech debt from milestone audit — surface failure_stage in notifications, align test harness with production entrypoint, fix fragile JSONL wildcard, correct documentation tracking artifacts
+**Depends on**: Phase 7
+**Requirements**: (gap closure — no new requirements)
+**Gap Closure**: Closes FINDING-1, FINDING-2 + 3 tech debt items from v1.1-MILESTONE-AUDIT.md
+**Success Criteria** (what must be TRUE):
+  1. A failed job notification message in Slack/Telegram includes the failure stage label (docker_pull/auth/claude)
+  2. `test-entrypoint.sh` uses `/tmp/prompt.txt` file redirect (matching production) and constructs a structured FULL_PROMPT with Target, Docs, Stack, Task, GSD Hint sections
+  3. `notify-pr-complete.yml` uses `find ... -name "gsd-invocations.jsonl"` (not `*.jsonl` wildcard)
+  4. REQUIREMENTS.md traceability table shows HIST-01 as "Complete"
+  5. 07-01-SUMMARY.md has `requirements-completed` frontmatter field
+**Plans**: 2 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Surface failure_stage in notifications and fix JSONL wildcard in notify-pr-complete.yml
+- [ ] 08-02-PLAN.md — Align test-entrypoint.sh with production prompt format and fix documentation tracking artifacts
 
 ## Progress
 
 **Execution Order:**
-Phases execute in strict dependency order: 5 → 6 → 7
+Phases execute in strict dependency order: 5 → 6 → 7 → 8
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -134,4 +152,5 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 6. Smart Job Prompts | v1.1 | 1/1 | Complete | 2026-02-25 |
-| 7. Previous Job Context | 2/2 | Complete    | 2026-02-25 | - |
+| 7. Previous Job Context | v1.1 | 2/2 | Complete | 2026-02-25 |
+| 8. Polish & Test Sync | v1.1 | 0/2 | Not started | - |
