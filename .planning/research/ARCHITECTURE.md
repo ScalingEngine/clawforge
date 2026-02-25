@@ -1,413 +1,588 @@
 # Architecture Research
 
-**Domain:** Claude Code CLI agent verification and observability in Docker job containers
-**Researched:** 2026-02-23
-**Confidence:** HIGH (based on direct codebase analysis) / MEDIUM (for ecosystem patterns)
+**Domain:** Smart job prompts, pipeline hardening, and previous job context injection for ClawForge v1.1
+**Researched:** 2026-02-24
+**Confidence:** HIGH (based on direct codebase inspection) / MEDIUM (for context injection patterns)
 
 ---
 
-## Standard Architecture for Verification + Observability
+## System Overview — Existing Architecture (v1.0)
 
-### System Overview
-
-The existing ClawForge system has two primary layers. The verification/observability work lives entirely in the **Job Container** layer — it does not touch the Event Handler.
+Understanding the full pipeline is required before identifying what changes for v1.1.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Event Handler (Next.js)                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
-│  │  Slack   │  │ Telegram │  │  Web UI  │  │  GitHub Webhook │ │
-│  │ Adapter  │  │ Adapter  │  │  Chat    │  │  /api/github/   │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┬────────┘ │
-│       └─────────────┴─────────────┴─────────────────┘          │
-│                          LangGraph Agent                         │
-│                     (createJob → job branch)                     │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ job/* branch push
-                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                    GitHub Actions Runner                          │
-│  run-job.yml → docker run [job image]                            │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │
-                               ▼
+│                     Event Handler (Next.js)                       │
+│                                                                  │
+│  Channel Adapter Layer (Slack/Telegram/Web)                      │
+│       ↓ normalized { threadId, text, attachments }               │
+│  LangGraph ReAct Agent (lib/ai/agent.js)                         │
+│       ↓ tool invocation                                          │
+│  createJobTool (lib/ai/tools.js)                                 │
+│       ↓ calls                                                    │
+│  createJob() (lib/tools/create-job.js)                           │
+│       ↓ GitHub API                                               │
+│  Push job/* branch with logs/{jobId}/job.md                      │
+│                                                                  │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ job/* branch push event
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    GitHub Actions (run-job.yml)                   │
+│  docker run [job image] with SECRETS, LLM_SECRETS, REPO_URL,    │
+│             BRANCH, LLM_MODEL, LLM_PROVIDER                     │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │
+                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Job Container (Docker)                        │
 │                                                                  │
-│  entrypoint.sh                                                   │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │  [STEP A] Clone job branch                                  │ │
-│  │  [STEP B] Build system prompt (SOUL.md + AGENT.md)         │ │
-│  │  [STEP C] Read job.md description                           │ │
-│  │  [STEP D] ← VERIFICATION HOOK: env/path validation         │ │
-│  │  [STEP E] claude -p --output-format json ...               │ │
-│  │           --allowedTools Read,Write,Edit,Bash,Glob,Grep,   │ │
-│  │                          Task,Skill                         │ │
-│  │           2>&1 | tee logs/{jobId}/claude-output.json       │ │
-│  │  [STEP F] ← OBSERVABILITY: parse claude-output.json        │ │
-│  │  [STEP G] git add -A && git commit && git push             │ │
-│  │  [STEP H] gh pr create                                      │ │
-│  └─────────────────────────────────────────────────────────────┘ │
+│  entrypoint.sh:                                                  │
+│  1. Export SECRETS and LLM_SECRETS as env vars                   │
+│  2. Git auth + clone job/* branch                                │
+│  3. [PREFLIGHT] verify HOME, claude, GSD paths                   │
+│  4. Build SYSTEM_PROMPT from /job/config/SOUL.md + AGENT.md      │
+│  5. Read JOB_DESCRIPTION from /job/logs/{jobId}/job.md           │
+│  6. Run: claude -p --append-system-prompt ... < /tmp/prompt.txt  │
+│  7. PostToolUse hook writes gsd-invocations.jsonl                │
+│  8. Generate observability.md from gsd-invocations.jsonl         │
+│  9. git add -A && git commit && git push                         │
+│  10. gh pr create (only if Claude exit 0)                        │
 │                                                                  │
-│  Filesystem Layout                                               │
-│  /root/.claude/          ← GSD installs here (HOME=/root)       │
-│  /job/                   ← cloned repo root                     │
-│  /job/config/SOUL.md     ← identity prompt                      │
-│  /job/config/AGENT.md    ← GSD instructions                     │
-│  /job/logs/{jobId}/      ← job.md (input) + claude-output.json  │
-│  /job/tmp/               ← gitignored scratch space             │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │ commit + PR
-                               ▼
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ PR created
+                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│         Auto-Merge + Notification Workflows                       │
-│   auto-merge.yml → notify-pr-complete.yml → /api/github/webhook │
-│   (reads logs/{jobId}/*.jsonl for log content)                   │
+│                    Post-Job Workflows                             │
+│                                                                  │
+│  auto-merge.yml — path-restricted auto-merge                     │
+│       ↓ on merge complete                                        │
+│  notify-pr-complete.yml — reads logs/{jobId}/*.jsonl, POSTs      │
+│       to /api/github/webhook                                     │
+│       OR                                                         │
+│  notify-job-failed.yml — on run-job.yml failure, POSTs to       │
+│       /api/github/webhook                                        │
+│                                                                  │
+│       ↓ webhook received                                         │
+│                                                                  │
+│  Event Handler: summarizeJob() + createNotification()            │
+│       ↓                                                          │
+│  Channel adapter sends completion message to originating thread   │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Component Responsibilities
+## v1.1 Feature Architecture
 
-| Component | Responsibility | Current State |
-|-----------|----------------|---------------|
-| `docker/job/Dockerfile` | Install Node 22, Claude Code CLI, GSD globally, GitHub CLI | Live. GSD installed via `npx get-shit-done-cc@latest --claude --global` |
-| `docker/job/entrypoint.sh` | Clone, build prompt, run `claude -p`, commit, PR | Live. Streams output to `claude-output.json` via tee |
-| `instances/*/config/SOUL.md` | Agent identity and persona | Per-instance. Sets character |
-| `instances/*/config/AGENT.md` | Tool list + GSD command reference | Per-instance. Instructs GSD usage |
-| `logs/{jobId}/job.md` | Job input — task description | Written by Event Handler before branch push |
-| `logs/{jobId}/claude-output.json` | Full raw output of `claude -p` (JSON stream) | Already captured. Not parsed post-run |
-| `templates/docker/job/` | Stale copies of Dockerfile and entrypoint | Drift issue — missing GSD install, missing Task+Skill in ALLOWED_TOOLS |
-| `run-job.yml` | GitHub Actions trigger — fires on `job/*` branch create | Template. `ALLOWED_TOOLS` not settable via env in current template (hardcoded in entrypoint) |
-| `notify-pr-complete.yml` | Reads `logs/{jobId}/*.jsonl`, sends to Event Handler | Looks for `.jsonl` — but `claude -p --output-format json` produces `.json`, not `.jsonl` |
+Three independent features, each with distinct integration points. They can be built in parallel after scoping, but have internal dependencies described below.
 
 ---
 
-## Recommended Architecture for Verification/Observability
+### Feature 1: Smart Job Prompts (Repo Context Injection)
 
-The verification/observability layer adds three new components, all inside or adjacent to the job container execution flow. They do not modify the Event Handler.
+**What it does:** Before creating a job, the Event Handler fetches context from the target repo (CLAUDE.md, package.json, directory structure) and injects it into the job description sent to the job container.
 
-### Component 1: Pre-Flight Verifier (Shell, in entrypoint)
+**Where it lives:** Event Handler — specifically `lib/tools/create-job.js` and `lib/ai/tools.js`.
 
-**What:** A shell function inserted between prompt construction (Step C) and `claude -p` invocation (Step E). Checks the actual runtime environment.
+**Data flow (current vs. new):**
 
-**Responsibility:**
-- Confirm `HOME` is set and resolves to `/root` (or expected value)
-- Confirm `~/.claude/` exists and GSD agents/skills are present
-- Confirm `claude` binary is on `PATH` and executable
-- Confirm `ANTHROPIC_API_KEY` is set (without printing its value)
-- Write a brief verification report to `logs/{jobId}/preflight.md`
-- Exit non-zero (fail fast) if critical deps missing
+```
+CURRENT:
+  Agent calls createJobTool(job_description)
+       ↓
+  createJob(jobDescription) writes job_description to logs/{jobId}/job.md
+       ↓
+  Job container reads job.md, builds SYSTEM_PROMPT from SOUL.md + AGENT.md
+  Agent starts COLD — no knowledge of target repo
 
-**Hook location in entrypoint.sh:** Between step 8 (read job.md) and step 11 (run `claude -p`). Specifically after line 76 (`echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md`) and before line 86 (`claude -p ...`).
+NEW:
+  Agent calls createJobTool(job_description, target_repo?)
+       ↓
+  createJob() fetches context from target repo via GitHub API:
+    - CLAUDE.md (architecture/conventions)
+    - package.json (stack, deps, scripts)
+    - Directory listing (top-level structure)
+       ↓
+  createJob() enriches job.md:
+    # Your Job
+    {job_description}
 
-```bash
-# VERIFICATION HOOK — insert here
-verify_gsd_environment() {
-    echo "=== Pre-flight check ==="
-    echo "HOME: ${HOME}"
-    echo "Claude binary: $(which claude || echo 'NOT FOUND')"
-    echo "GSD agents dir: ${HOME}/.claude/agents/"
-    ls "${HOME}/.claude/agents/" 2>/dev/null || echo "WARNING: No agents found"
-    echo "========================"
-    # write summary to logs
-}
-verify_gsd_environment | tee "${LOG_DIR}/preflight.md"
+    # Repo Context
+    ## CLAUDE.md
+    {claude_md_content}
+
+    ## package.json
+    {package_json_content}
+
+    ## Directory Structure
+    {top_level_ls}
+       ↓
+  Job container reads enriched job.md — agent starts WARM
 ```
 
-**Data flow:** entrypoint → stdout/preflight.md → committed to repo → visible in PR diff
+**Component changes:**
 
-**Build dependency:** None. Self-contained in entrypoint.sh changes.
+| Component | Change Type | What Changes |
+|-----------|-------------|--------------|
+| `lib/tools/create-job.js` | MODIFY | Add `fetchRepoContext(owner, repo, branch)` that calls GitHub contents API. Append context block to `jobDescription` before writing `job.md`. |
+| `lib/ai/tools.js` | MODIFY | Extend `createJobTool` schema with optional `target_repo` parameter (owner/repo string). Pass to `createJob()`. Fallback to `GH_OWNER/GH_REPO` env if not provided. |
+| `lib/tools/github.js` | MODIFY | Add `getFileContents(owner, repo, path, branch)` helper. Add `getRepoStructure(owner, repo)` returning top-level tree. |
+
+**New component:**
+
+```
+lib/tools/repo-context.js     NEW — context fetcher
+  fetchRepoContext(owner, repo, branch?)
+    → getFileContents(CLAUDE.md)   [silent fail if missing]
+    → getFileContents(package.json) [silent fail if missing]
+    → getRepoTree()                [top-level only, not recursive]
+    → returns formatted markdown block
+```
+
+**Key design decisions:**
+
+- Repo context fetching is **best-effort**: if CLAUDE.md is absent, skip it. Never block job creation because context fetch fails.
+- Context is injected into `job.md`, not into `SYSTEM_PROMPT`. The system prompt (`SOUL.md + AGENT.md`) is instance configuration. Job-specific context belongs in the job description.
+- GitHub API rate limit concern: 3 API calls per job creation (CLAUDE.md, package.json, tree). At 5,000 req/hour limit, this is safe for <1,600 jobs/hour — well above current volume.
+- Context is capped. CLAUDE.md and package.json should be truncated at 8KB each to prevent `job.md` from exceeding reasonable size.
+
+**Integration boundary:**
+
+```
+lib/ai/tools.js (createJobTool)
+    → lib/tools/create-job.js (createJob)
+        → lib/tools/repo-context.js (fetchRepoContext)   [NEW]
+            → lib/tools/github.js (getFileContents, getRepoTree)  [EXTEND]
+```
+
+No changes to entrypoint.sh, GitHub Actions workflows, or the job container. The enrichment is transparent from the container's perspective — it just reads a richer `job.md`.
 
 ---
 
-### Component 2: Output Log Parser (Post-run, in entrypoint)
+### Feature 2: Pipeline Hardening
 
-**What:** A Node.js script (or `jq` pipeline) invoked after `claude -p` completes. Parses `claude-output.json` to extract tool invocations and detect GSD skill usage.
+**What it does:** Prevents silent failures and incorrect notifications in the GitHub Actions pipeline. Targets: conditional PR creation (already done in v1.0), error propagation from failed Claude runs, notification accuracy (merge state detection).
 
-**Responsibility:**
-- Read `logs/{jobId}/claude-output.json` (JSON stream of Claude Code output)
-- Extract all `tool_use` events from the stream
-- Filter for `Skill` tool calls that match `/gsd:*` patterns
-- Count: total tools called, GSD skills invoked, non-GSD tool calls
-- Write `logs/{jobId}/observability.md` with a human-readable summary
-- Write `logs/{jobId}/tool-usage.json` with structured data for downstream parsing
+**Current state (post v1.0):** The pipeline already has:
+- Conditional `gh pr create` — only runs if `CLAUDE_EXIT -eq 0`
+- `notify-job-failed.yml` — fires on `run-job.yml` failure
+- `notify-pr-complete.yml` — fires after `auto-merge.yml` completes
 
-**Hook location in entrypoint.sh:** After step 11 (`claude -p` pipe), before step 12 (git commit). Specifically after line 91 and before line 93.
+**Known gaps to harden:**
 
-```bash
-# OBSERVABILITY HOOK — insert here
-if [ -f "${LOG_DIR}/claude-output.json" ]; then
-    node /usr/local/lib/parse-job-output.js "${LOG_DIR}" 2>/dev/null || true
-fi
+```
+Gap 1: Claude non-zero exit propagates but container exits 0
+  - entrypoint.sh line 137: logs CLAUDE_EXIT but always exits with CLAUDE_EXIT (line 184)
+  - This is CORRECT — container exits with Claude's exit code
+  - Verify: run-job.yml must not suppress non-zero exit; currently has no error masking
+  - Action: Audit run-job.yml step exit codes; confirm container failure reaches workflow failure
+
+Gap 2: notify-pr-complete.yml merge state detection is brittle
+  - Uses `gh pr view --json mergedAt` to check merge state
+  - If auto-merge hasn't completed when workflow fires, mergedAt is null
+  - The workflow fires on auto-merge.yml completion, not on PR merge directly
+  - Action: Use workflow_run.conclusion to determine merge outcome, not just mergedAt poll
+
+Gap 3: notify-job-failed.yml branch checkout on failed jobs
+  - Failed jobs may not have committed logs (entrypoint commits with `|| true`)
+  - `git commit ... || true` means job.md may be absent from branch if commit failed
+  - Action: Ensure job.md is always readable from branch before container runs (it is — job.md is written to the branch before run-job.yml fires, not by the container)
+
+Gap 4: No timeout on job containers
+  - Containers run until GitHub Actions 6-hour timeout if Claude hangs
+  - Relevant for pipeline hardening: a hung container blocks the runner
+  - Action: Add `timeout-minutes` to run-job.yml job definition
 ```
 
-**Data flow:** claude-output.json → parse-job-output.js → observability.md + tool-usage.json → committed to repo → visible in notify-pr-complete webhook payload (via `changed_files`)
+**Component changes:**
 
-**Build dependency:** Requires Component 1 to be working first (confirms claude-output.json is being produced).
+| Component | Change Type | What Changes |
+|-----------|-------------|--------------|
+| `.github/workflows/run-job.yml` | MODIFY | Add `timeout-minutes: 30` to job definition. Verify no step-level exit code masking. |
+| `.github/workflows/notify-pr-complete.yml` | MODIFY | Improve merge state detection logic. Add error handling for missing PR. |
+| `.github/workflows/notify-job-failed.yml` | MODIFY | Verify checkout ref fallback when container hasn't committed. |
+| `templates/.github/workflows/` | MODIFY | Sync all three workflow templates after live changes. |
+
+**No Event Handler changes required.** Pipeline hardening is GitHub Actions-layer only.
 
 ---
 
-### Component 3: Test Harness (Local Docker + CI)
+### Feature 3: Previous Job Context Injection
 
-**What:** A test script that triggers a known job locally via `docker run`, with a fixed job description that requires GSD usage, and validates the output log.
+**What it does:** When a user asks Archie/Epic to do something related to a previous job, the agent has access to what that job produced — what files changed, what the PR contained, what succeeded or failed. Agent starts conversations with warm context rather than rediscovering state.
 
-**Responsibility:**
-- Provide a `test-job.sh` script that runs the job image locally
-- Inject a test job.md that explicitly requests `/gsd:quick` for a trivial task
-- After `docker run` completes, inspect `logs/*/tool-usage.json` for GSD calls
-- Report PASS/FAIL with specific evidence (which tools were called)
-- Optionally add a `test-job.yml` GitHub Actions workflow for CI validation
+**Where it lives:** Event Handler — specifically `lib/ai/index.js`, `lib/db/`, and potentially `lib/ai/tools.js`.
 
-**Structure:**
+**Two distinct sub-problems:**
+
+**Sub-problem A: Same-thread job continuity (already partially solved)**
+
+The LangGraph SQLite checkpointer (`SqliteSaver`) persists the full conversation history per `thread_id`. When a job completes, `addToThread(threadId, message)` injects the job result back into the conversation. The agent already has the job result in its message history for follow-up questions in the same thread.
+
+Gap: The injected message from `notify-pr-complete.yml` contains `changed_files`, `commit_message`, `pr_url`, and `log` (GSD invocations). This is sufficient for same-thread continuity. **No architectural change needed here** — v1.0 already handles this.
+
+**Sub-problem B: Cross-thread or cross-session job recall (new capability)**
+
+When a user starts a new conversation and references a previous job by description ("remember that refactor you did last week"), the agent has no context. The `jobOrigins` table links `jobId` to `threadId` but contains no job outcome data.
+
+**New data flow:**
+
 ```
-tests/
-├── test-job.sh              # local docker run with fixed job.md
-├── fixtures/
-│   └── gsd-test-job.md     # test job description requiring /gsd:quick
-└── validate-output.sh       # parses tool-usage.json, exits non-zero if no GSD calls
+Job completes → notify-pr-complete.yml → /api/github/webhook
+       ↓
+Event Handler receives webhook payload:
+  { job_id, status, job (description), changed_files, commit_message, pr_url, log }
+       ↓
+Currently: createNotification() saves for UI display
+NEW: Also persist job outcome to job_outcomes table (or extend jobOrigins)
+       ↓
+Agent tools: new getRecentJobsTool or enhanced getJobStatusTool
+  → queries job_outcomes for completed jobs
+  → returns: job_id, description, changed_files, pr_url, outcome_summary
+       ↓
+Agent uses this in conversation: "The last job I ran on repo X changed Y files..."
 ```
 
-**Data flow:** test-job.sh → docker run → entrypoint.sh → claude -p → observability.md + tool-usage.json → validate-output.sh → PASS/FAIL
+**Schema addition:**
 
-**Build dependency:** Requires Component 1 (pre-flight) and Component 2 (output parser) to exist. Test harness validates both.
+```sql
+-- New table: job_outcomes
+CREATE TABLE job_outcomes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT UNIQUE NOT NULL,
+  thread_id TEXT,
+  platform TEXT,
+  status TEXT,          -- completed, failed, open
+  description TEXT,     -- original job.md content
+  changed_files TEXT,   -- JSON array
+  commit_message TEXT,
+  pr_url TEXT,
+  merge_result TEXT,
+  log_summary TEXT,     -- truncated gsd-invocations content
+  created_at INTEGER DEFAULT (unixepoch())
+);
+```
+
+**Component changes:**
+
+| Component | Change Type | What Changes |
+|-----------|-------------|--------------|
+| `lib/db/schema.js` | MODIFY | Add `jobOutcomes` table definition. |
+| `lib/db/job-outcomes.js` | NEW | `saveJobOutcome(payload)`, `getJobOutcomes(limit)`, `getJobOutcome(jobId)` |
+| `api/index.js` (GitHub webhook handler) | MODIFY | After `createNotification()`, also call `saveJobOutcome()` with webhook payload. |
+| `lib/ai/tools.js` | MODIFY | Add `getRecentJobsTool` that queries `jobOutcomes` for the last N completed jobs. |
+| `drizzle/` | GENERATE | Run `npm run db:generate` to create migration SQL. |
+
+**Important scope clarification:** This feature is about the Event Handler having job history for conversational context. It does NOT require changes to the job container, entrypoint, or GitHub Actions workflows. The webhook payload already contains all needed data — it just isn't being persisted for agent retrieval.
 
 ---
 
-## Data Flow: Verification + Observability End-to-End
+## Component Responsibilities (v1.1 State)
+
+| Component | Responsibility | v1.0 State | v1.1 Changes |
+|-----------|---------------|------------|--------------|
+| `lib/tools/repo-context.js` | Fetch CLAUDE.md, package.json, tree from target repo | Does not exist | NEW |
+| `lib/tools/create-job.js` | Create job branch, write enriched job.md | Creates bare job.md | MODIFY: inject repo context |
+| `lib/ai/tools.js` | LangGraph tool definitions | 3 tools | MODIFY: extend createJobTool, add getRecentJobsTool |
+| `lib/tools/github.js` | GitHub REST API client | Read-focused | MODIFY: add getFileContents, getRepoTree |
+| `lib/db/job-outcomes.js` | Persist job completion data | Does not exist | NEW |
+| `lib/db/schema.js` | Drizzle table definitions | 6 tables | MODIFY: add jobOutcomes |
+| `api/index.js` (GH webhook) | Handle job completion webhook | Notifies + summarizes | MODIFY: also saveJobOutcome |
+| `.github/workflows/run-job.yml` | Trigger job container | Functional | MODIFY: add timeout |
+| `.github/workflows/notify-*.yml` | Notify Event Handler | Functional | MODIFY: harden edge cases |
+
+---
+
+## Data Flow: Smart Job Creation (v1.1)
 
 ```
-Event Handler creates job
-         |
-         v
-job/* branch push → run-job.yml fires
-         |
-         v
-docker run [job image]
-         |
-         v
-entrypoint.sh
-    1. Clone branch
-    2. Build system prompt (SOUL.md + AGENT.md)
-    3. Read job.md
-    4. [PRE-FLIGHT] verify_gsd_environment()
-         writes: logs/{jobId}/preflight.md
-    5. claude -p --output-format json
-         writes: logs/{jobId}/claude-output.json    ← KEY: existing output
-    6. [OBSERVABILITY] parse-job-output.js
-         reads: logs/{jobId}/claude-output.json
-         writes: logs/{jobId}/observability.md      ← human summary
-         writes: logs/{jobId}/tool-usage.json        ← structured GSD evidence
-    7. git add -A && git commit && git push
-         (all logs/ files committed to branch)
-    8. gh pr create
-         |
-         v
-notify-pr-complete.yml
-    reads: logs/{jobId}/*.jsonl               ← BUG: needs fixing to *.json
-    sends: webhook payload to /api/github/webhook
-         |
-         v
-Event Handler summarizes + notifies Slack/Telegram
+User: "Refactor the auth module in strategyes-lab"
+       ↓
+LangGraph Agent (EVENT_HANDLER.md context)
+       ↓ tool call: create_job
+createJobTool({ job_description: "Refactor auth module", target_repo: "owner/strategyes-lab" })
+       ↓
+createJob(jobDescription, { owner, repo })
+       ↓ parallel GitHub API calls
+fetchRepoContext(owner, repo)
+  ├── GET /repos/{owner}/{repo}/contents/CLAUDE.md   → architecture docs
+  ├── GET /repos/{owner}/{repo}/contents/package.json → stack/scripts
+  └── GET /repos/{owner}/{repo}/git/trees/HEAD?recursive=false → top-level tree
+       ↓
+Enrich job.md:
+  "# Your Job\nRefactor auth module\n\n# Repo Context\n## CLAUDE.md\n..."
+       ↓
+Push job/* branch with enriched job.md
+       ↓
+GitHub Actions triggers run-job.yml
+       ↓
+Job container reads enriched job.md → claude -p starts WARM with repo context
 ```
 
 ---
 
-## Recommended Project Structure (additions only)
+## Data Flow: Previous Job Context (v1.1)
 
 ```
-docker/job/
-├── Dockerfile              # existing — no changes needed for Phase 1
-├── entrypoint.sh           # existing — add verification + observability hooks
-└── parse-job-output.js     # NEW — Node script to parse claude-output.json
+Job completes → /api/github/webhook receives:
+  { job_id, status: "completed", job: "Refactor auth module",
+    changed_files: ["src/auth.js", "tests/auth.test.js"],
+    commit_message: "feat: extract auth middleware",
+    pr_url: "https://github.com/...", merge_result: "merged" }
+       ↓
+Event Handler:
+  summarizeJob() → LLM summary
+  createNotification() → save for UI
+  saveJobOutcome() → persist to job_outcomes table  [NEW]
+       ↓
+Later conversation (new thread):
+User: "What did you change in strategyes-lab last week?"
+       ↓
+Agent: getRecentJobsTool({ limit: 5 })
+  → query job_outcomes ORDER BY created_at DESC
+  → returns: [{ job_id, description, changed_files, pr_url, ... }]
+       ↓
+Agent answers with actual PR data, not hallucination
+```
 
-tests/
-├── test-job.sh             # NEW — local harness to trigger test job
-├── fixtures/
-│   └── gsd-test-job.md    # NEW — deterministic test job description
-└── validate-output.sh      # NEW — parse tool-usage.json, assert GSD was used
+---
 
-templates/docker/job/
-├── Dockerfile              # NEEDS SYNC — add GSD install (missing vs live)
-└── entrypoint.sh           # NEEDS SYNC — add Task+Skill to ALLOWED_TOOLS
+## Recommended Project Structure (additions/changes for v1.1)
+
+```
+lib/
+├── tools/
+│   ├── create-job.js         MODIFY — inject repo context into job.md
+│   ├── github.js             MODIFY — add getFileContents, getRepoTree
+│   └── repo-context.js       NEW — fetchRepoContext() orchestrator
+├── ai/
+│   └── tools.js              MODIFY — extend createJobTool + add getRecentJobsTool
+├── db/
+│   ├── schema.js             MODIFY — add jobOutcomes table
+│   └── job-outcomes.js       NEW — CRUD for job completion data
+
+drizzle/
+└── [new migration].sql       GENERATE — via npm run db:generate
+
+.github/workflows/
+├── run-job.yml               MODIFY — add timeout-minutes
+├── notify-pr-complete.yml    MODIFY — harden merge detection
+└── notify-job-failed.yml     VERIFY — audit for edge cases
+
+templates/.github/workflows/
+├── run-job.yml               SYNC — after live changes
+├── notify-pr-complete.yml    SYNC — after live changes
+└── notify-job-failed.yml     SYNC — after live changes
 ```
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Append-Only Log Files as Verification Evidence
+### Pattern 1: Best-Effort Context Enrichment
 
-**What:** All verification data is written as new files inside `logs/{jobId}/` which are already committed to the job branch and appear in the PR diff.
+**What:** Wrap all repo context fetches in try-catch. Return partial context if some fetches fail. Never block job creation because a file doesn't exist in the target repo.
 
-**When to use:** Any time you need to surface container-side data without modifying the Event Handler or GitHub Actions workflows.
+**When to use:** Any time the Event Handler fetches external data as enrichment (not as a requirement).
 
-**Trade-offs:** Simple. No new infrastructure. Log files grow with each job, but they are per-branch and auto-cleaned by GitHub's branch lifecycle. The downside is that verification data is only inspectable post-PR-creation — there is no real-time streaming to the Event Handler during job execution.
+**Trade-offs:** Jobs may occasionally start with less context than expected if GitHub API returns a 404 for CLAUDE.md. This is acceptable — the job still runs. The alternative (blocking job creation) is worse.
 
-```bash
-# Pattern: write evidence to logs/ during entrypoint execution
-echo "GSD found at: ${HOME}/.claude/" >> "${LOG_DIR}/preflight.md"
+```javascript
+// repo-context.js pattern
+async function fetchRepoContext(owner, repo, branch = 'main') {
+  const parts = [];
+
+  try {
+    const claudeMd = await getFileContents(owner, repo, 'CLAUDE.md', branch);
+    if (claudeMd) parts.push(`## CLAUDE.md\n${claudeMd.slice(0, 8000)}`);
+  } catch { /* absent — skip */ }
+
+  try {
+    const pkg = await getFileContents(owner, repo, 'package.json', branch);
+    if (pkg) parts.push(`## package.json\n${pkg.slice(0, 4000)}`);
+  } catch { /* absent — skip */ }
+
+  if (parts.length === 0) return '';
+  return `\n\n# Repo Context\n\n${parts.join('\n\n')}`;
+}
 ```
 
 ---
 
-### Pattern 2: jq-First Output Parsing (No External Deps)
+### Pattern 2: Webhook Payload as Source of Truth for Job History
 
-**What:** Parse `claude-output.json` using `jq` in the entrypoint shell script rather than a separate Node.js script.
+**What:** The `notify-pr-complete.yml` webhook payload already contains all job outcome data needed for conversational context: `changed_files`, `commit_message`, `pr_url`, `log`, `merge_result`. Persist this payload verbatim to the database rather than re-fetching from GitHub later.
 
-**When to use:** Lowest complexity option. `jq` is already installed in the Docker image.
+**When to use:** Any time job completion data needs to be queryable from the Event Handler.
 
-**Trade-offs:** `jq` is available and fast, but complex JSON path queries for tool_use extraction are harder to maintain than a Node.js script. For Phase 1 (just detecting if Skill tool was called at all), `jq` is sufficient. For Phase 2 (semantic analysis of which GSD commands were called), Node.js is cleaner.
+**Trade-offs:** The payload is captured once at completion. If a PR is later reverted or edited, the persisted data is stale. This is acceptable — the record represents what the job produced, not the current state of main.
 
-```bash
-# jq pattern: check if Skill tool was called with a /gsd: argument
-GSD_CALLS=$(jq -r '
-  .[] | select(type == "object") |
-  select(.type == "tool_use") |
-  select(.name == "Skill") |
-  .input.command // empty' \
-  "${LOG_DIR}/claude-output.json" 2>/dev/null | grep -c "^/gsd:" || echo 0)
-echo "GSD calls: ${GSD_CALLS}" >> "${LOG_DIR}/observability.md"
+```javascript
+// api/index.js — GitHub webhook handler (addition)
+async function handleJobComplete(payload) {
+  const { job_id, status, job, changed_files, commit_message, pr_url, log, merge_result } = payload;
+
+  // existing
+  await summarizeJob(payload);
+  await createNotification({ job_id, ... });
+
+  // new — persist for agent retrieval
+  try {
+    await saveJobOutcome({
+      jobId: job_id,
+      threadId: getJobOrigin(job_id)?.threadId,
+      status,
+      description: job,
+      changedFiles: JSON.stringify(changed_files),
+      commitMessage: commit_message,
+      prUrl: pr_url,
+      mergeResult: merge_result,
+      logSummary: log?.slice(0, 2000),
+    });
+  } catch (err) {
+    console.error('[github-webhook] Failed to save job outcome:', err);
+    // non-blocking
+  }
+}
 ```
 
 ---
 
-### Pattern 3: Fail-Fast Pre-Flight Before claude -p
+### Pattern 3: Extend Existing Tools Before Adding New Ones
 
-**What:** Run environment validation before invoking Claude Code CLI and exit non-zero if critical dependencies are missing.
+**What:** For `getRecentJobsTool` — check whether `getJobStatusTool` can be extended to include historical jobs before creating a parallel tool. `getJobStatusTool` currently queries `run-job.yml` workflow runs from GitHub, which is the wrong data source for historical context (GitHub Actions only keeps runs for ~90 days; job outcomes table is permanent).
 
-**When to use:** Always. Failing fast at pre-flight produces a clear GitHub Actions failure with a meaningful log message, rather than a silent GSD non-invocation.
+**When to use:** This is a case where a new tool IS warranted, because the data source is different (SQLite vs GitHub API) and the query intent is different (historical context vs live status).
 
-**Trade-offs:** Adds 1-2 seconds to job startup. Worth the diagnostic clarity. Must not exit non-zero for soft warnings (GSD agents missing but GSD itself installed) — only hard failures (no API key, no claude binary).
-
-```bash
-# Pattern: fail fast only on hard requirements
-if ! command -v claude &>/dev/null; then
-    echo "ERROR: claude CLI not found on PATH"
-    exit 1
-fi
-# Soft warning — GSD dir missing but job can still run without it
-if [ ! -d "${HOME}/.claude/agents/" ]; then
-    echo "WARNING: No GSD agents found at ${HOME}/.claude/agents/"
-fi
-```
+**Trade-offs:** Two tools instead of one, but clean separation of concerns. `get_job_status` = live running jobs (GitHub API). `get_recent_jobs` = completed job history (SQLite). Agent understands the distinction.
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Modifying the Event Handler to Add Observability
+### Anti-Pattern 1: Injecting Repo Context into the System Prompt
 
-**What people do:** Add GSD usage detection to the GitHub webhook handler (`/api/github/webhook`) or to `summarizeJob()` in the Event Handler.
+**What people do:** Add CLAUDE.md and package.json to `SOUL.md` or `AGENT.md` inside the instance config.
 
-**Why it's wrong:** The Event Handler receives a summarized webhook payload from `notify-pr-complete.yml`. The raw tool usage data is not forwarded in that payload. Parsing for GSD usage in the Event Handler means parsing a summarized LLM output, not the actual tool call stream — this is unreliable.
+**Why it's wrong:** `SOUL.md` and `AGENT.md` are static instance configuration that applies to all jobs. Repo-specific context must be job-specific. Putting it in the system prompt makes all jobs for an instance share the same repo context — Epic (strategyes-lab only) would have the wrong context if it gets a generic job.
 
-**Do this instead:** Parse `claude-output.json` inside the job container immediately after `claude -p` completes (Component 2). The container has direct access to the raw output. Commit the parsed result to `logs/` so it propagates through the existing pipeline.
-
----
-
-### Anti-Pattern 2: Using `--dangerously-skip-permissions` to Diagnose GSD
-
-**What people do:** Switch from `--allowedTools` whitelist to `--dangerously-skip-permissions` to see if GSD starts being called.
-
-**Why it's wrong:** Broadens the attack surface for prompt injection. The `--allowedTools` whitelist with `Skill` included is the correct configuration — if GSD isn't being called, the issue is path resolution or system prompt instructions, not the permission model.
-
-**Do this instead:** Verify the `HOME` environment variable and `~/.claude/` path first (Component 1). The Skill tool must already be in `ALLOWED_TOOLS` — which it is in the live `entrypoint.sh`. The issue is most likely `HOME` not resolving to `/root` at runtime, or the GSD install path differing.
+**Do this instead:** Inject repo context into `job.md` (the job description file written by `createJob()`). The entrypoint reads this file and feeds it to `claude -p` as the user prompt, not the system prompt. Each job has its own context.
 
 ---
 
-### Anti-Pattern 3: Testing GSD by Triggering a Real Slack Message
+### Anti-Pattern 2: Fetching Repo Context Inside the Job Container
 
-**What people do:** Send a Slack message to Archie or Epic and read the resulting PR log to see if GSD was used.
+**What people do:** Add a step to `entrypoint.sh` that clones or fetches CLAUDE.md from the target repo.
 
-**Why it's wrong:** Slow feedback loop (minutes per iteration), requires production credentials, and produces non-deterministic jobs. If the job description doesn't specifically require GSD, the agent may solve it without GSD even if GSD is available.
+**Why it's wrong:** The job container clones only the ClawForge job repo (the branch containing `job.md`), not the target repo being modified. Adding GitHub API calls inside the container adds complexity, adds a network dependency inside Docker, and duplicates the GitHub token usage pattern already present in the Event Handler.
 
-**Do this instead:** Use the local test harness (Component 3) with a fixed `gsd-test-job.md` that explicitly requires `/gsd:quick`. This runs in seconds locally and produces deterministic, inspectable output without touching production systems.
-
----
-
-### Anti-Pattern 4: Syncing Template Drift After Adding Verification
-
-**What people do:** Add verification to `docker/job/entrypoint.sh` and `docker/job/Dockerfile` but forget to update `templates/docker/job/`.
-
-**Why it's wrong:** Template drift already exists (GSD missing from template Dockerfile, Task+Skill missing from template ALLOWED_TOOLS). Adding verification to the live files without syncing the templates makes the drift worse.
-
-**Do this instead:** Treat template sync as the first sub-task of any entrypoint change. The templates are what new instances scaffold from. Drift compounds across instances.
+**Do this instead:** Fetch repo context in the Event Handler before creating the job branch. The data travels through `job.md` as plain text — no container-side networking required.
 
 ---
 
-## Build Order (Component Dependencies)
+### Anti-Pattern 3: Blocking Job Creation When Context Fetch Fails
+
+**What people do:** `await fetchRepoContext()` and throw if GitHub returns 404 or rate limit.
+
+**Why it's wrong:** Most target repos will eventually lack a CLAUDE.md or have private files. A failing context fetch should never prevent a job from being created. The job runs with less context — the agent still works, just starts colder.
+
+**Do this instead:** Wrap context fetching in try-catch per file. Return an empty string if all fetches fail. `createJob()` appends context only when it's non-empty.
+
+---
+
+### Anti-Pattern 4: Storing Full Job Output in SQLite
+
+**What people do:** Persist the full `claude-output.json` (can be megabytes) into the `job_outcomes` table.
+
+**Why it's wrong:** SQLite is not appropriate for large blob storage. The full job output is already committed to the job branch in Git — it doesn't need to live in the database.
+
+**Do this instead:** Store only the summary fields from the webhook payload: `changed_files` (array), `commit_message` (string), `pr_url` (string), `merge_result` (string), and a truncated `log_summary` (first 2KB of GSD invocations). Link to the PR URL for full output.
+
+---
+
+## Build Order
+
+Dependencies determine order within the milestone. Features 1 and 3 touch different parts of the stack and can be phased, but have no hard dependency on each other.
 
 ```
-[1] Template Sync (no deps)
-    └── Sync templates/docker/job/ to match docker/job/
-    └── Fixes template drift before new code is written
-         |
-         v
-[2] Pre-Flight Verifier (no deps beyond entrypoint)
-    └── Adds verify_gsd_environment() to entrypoint.sh
-    └── Writes preflight.md to logs/
-    └── Validates HOME, claude binary, GSD path
-    └── Provides evidence for diagnosing Path resolution issue
-         |
-         v
-[3] Output Log Parser (depends on [2] confirming claude-output.json exists)
-    └── Adds parse-job-output.js (or jq pipeline) to entrypoint
-    └── Writes observability.md + tool-usage.json
-    └── Provides GSD call evidence
-         |
-         v
-[4] Test Harness (depends on [2] + [3])
-    └── tests/test-job.sh + fixtures/gsd-test-job.md
-    └── validate-output.sh reads tool-usage.json
-    └── Proves the full GSD chain end-to-end
-         |
-         v
-[5] AGENT.md / SOUL.md tuning (depends on [4] evidence)
-    └── If test harness shows GSD not being invoked despite availability,
-        tighten the system prompt instruction in AGENT.md
-    └── Should only be done after Component 2 confirms GSD IS discoverable
+[Feature 2: Pipeline Hardening]
+  → No deps on Features 1 or 3
+  → Pure GitHub Actions changes
+  → Do this first — lowest risk, unblocks validation of the other features
+  → MODIFY: run-job.yml (timeout), notify-pr-complete.yml (hardening)
+  → SYNC: templates/.github/workflows/
+
+       ↓ (parallel or sequential)
+
+[Feature 1: Smart Job Prompts]
+  → Depends on nothing except GitHub API access (already exists)
+  → NEW: lib/tools/repo-context.js
+  → MODIFY: lib/tools/create-job.js, lib/tools/github.js, lib/ai/tools.js
+  → Test: trigger a job, inspect job.md for repo context block
+
+       ↓ (after Feature 1 validated)
+
+[Feature 3: Previous Job Context]
+  → Depends on jobs completing successfully (Feature 2 hardening helps)
+  → NEW: lib/db/job-outcomes.js
+  → MODIFY: lib/db/schema.js, api/index.js (webhook handler), lib/ai/tools.js
+  → GENERATE: drizzle migration
+  → Test: complete a job, query job_outcomes, verify agent can retrieve it
+
+       ↓ (after Feature 3 schema exists)
+
+[Feature 3b: Agent Routing Improvements — quick vs. plan-phase thresholds]
+  → Depends on: agent having job history context (Feature 3)
+  → MODIFY: EVENT_HANDLER.md prompt language for routing decisions
+  → MODIFY: instances/*/config/EVENT_HANDLER.md
+  → Test: send simple vs. complex tasks, verify routing
 ```
 
-**Rationale:** Build order is dependency-driven. You cannot validate GSD usage (Component 3) until you know `claude-output.json` is being produced correctly (verified by Component 2). You cannot write a meaningful test (Component 4) until you have parseable evidence to assert against (Component 3). Template sync is a prerequisite to everything because it prevents the scaffolding diverging further during development.
+**Rationale for this order:**
+- Pipeline hardening first because it doesn't require any new code paths, just fixes to existing workflows. Reduces risk of flaky tests when validating new features.
+- Repo context injection second because it's purely additive to `createJob()` with no schema changes or new infrastructure. Fastest to validate (just inspect `job.md` on the next test job).
+- Job outcomes third because it requires a schema migration, a new DB module, webhook handler changes, and a new LangGraph tool — more moving parts that should be built on a stable foundation.
+- Routing improvements last because they depend on the agent having job history context to make informed routing decisions.
 
 ---
 
 ## Integration Points
 
-### Existing Entrypoint Hook Points
+### Event Handler ↔ GitHub API (new calls for repo context)
 
-| Hook Point | Location in entrypoint.sh | What to Insert |
-|------------|--------------------------|----------------|
-| Post-prompt-build, pre-claude | After line 75 (`echo -e "$SYSTEM_PROMPT" > /tmp/system-prompt.md`) | verify_gsd_environment() call |
-| Post-claude, pre-commit | After line 91 (`... | tee "${LOG_DIR}/claude-output.json"`) | parse-job-output invocation |
-| Commit step | Line 93–96 (git add -A, commit) | No change needed — logs/ already committed via `git add -A` |
+| Call | Where | Rate Limit Impact |
+|------|-------|-------------------|
+| `GET /repos/{owner}/{repo}/contents/CLAUDE.md` | `repo-context.js` | 1 req per job |
+| `GET /repos/{owner}/{repo}/contents/package.json` | `repo-context.js` | 1 req per job |
+| `GET /repos/{owner}/{repo}/git/trees/HEAD` | `repo-context.js` | 1 req per job |
 
-### notify-pr-complete.yml Bug (File Extension Mismatch)
+Total: 3 additional GitHub API calls per job. At 5,000 req/hour authenticated limit: safe up to ~1,600 jobs/hour (current volume is well under 100/day).
 
-The notify workflow on line 84 looks for `*.jsonl`:
-```bash
-LOG_FILE=$(find "$LOG_DIR" -name "*.jsonl" -type f | head -1)
-```
+### Webhook Handler ↔ job_outcomes table (new write path)
 
-But `entrypoint.sh` produces `claude-output.json` (not `.jsonl`). This means the `log` field in the webhook payload is always empty. This should be fixed as part of the observability work — either rename the output file to `.jsonl` or update the workflow's `find` pattern.
+| Trigger | Handler | Data Written |
+|---------|---------|-------------|
+| `notify-pr-complete.yml` POST to `/api/github/webhook` | `api/index.js` GitHub webhook handler | `saveJobOutcome(payload)` |
+| `notify-job-failed.yml` POST to `/api/github/webhook` | Same handler, `status: "failed"` | `saveJobOutcome(payload)` |
 
-**Recommendation:** Change the notify workflow's `find` pattern to include both:
-```bash
-LOG_FILE=$(find "$LOG_DIR" \( -name "*.jsonl" -o -name "*.json" \) -type f | head -1)
-```
+Both workflows POST to the same endpoint. The handler distinguishes success vs failure by the `status` field in the payload.
 
-This avoids renaming the existing output file and is backward-compatible.
+### Agent ↔ job_outcomes table (new read path)
 
-### Internal Boundaries
+| Tool | Data Source | Query |
+|------|------------|-------|
+| `get_recent_jobs` (new) | `lib/db/job-outcomes.js` | `SELECT * FROM job_outcomes ORDER BY created_at DESC LIMIT ?` |
+| `get_job_status` (existing) | `lib/tools/github.js` | GitHub Actions API (unchanged) |
+
+These two tools cover different time horizons: `get_job_status` is for live/running jobs; `get_recent_jobs` is for completed history.
+
+### Internal Boundary: createJob ↔ repo-context
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| entrypoint.sh → parse-job-output.js | Direct file I/O (reads claude-output.json, writes observability.md) | No network I/O |
-| Job container → GitHub | git push + gh pr create | Existing mechanism — logs/ files travel this path already |
-| notify-pr-complete.yml → Event Handler | HTTP POST to `/api/github/webhook` | Existing. observability.md surfaces in `changed_files` list; full log content in `log` field (once bug fixed) |
-| tests/test-job.sh → docker run | docker run with mounted fixture | Local only — no GitHub Actions credentials needed |
+| `createJob()` → `fetchRepoContext()` | Direct function call, returns string | Best-effort: empty string if all fetches fail. `createJob()` appends to jobDescription only if non-empty. |
+| `fetchRepoContext()` → `githubApi()` | Direct calls to existing REST helper | Uses same `GH_TOKEN` as all other GitHub calls. No new auth. |
 
 ---
 
@@ -415,27 +590,31 @@ This avoids renaming the existing output file and is backward-compatible.
 
 | Scale | Architecture Adjustments |
 |-------|--------------------------|
-| 1-10 concurrent jobs | Current entrypoint hook approach is fine. File I/O for observability adds <1s. |
-| 10-100 concurrent jobs | Pre-flight and output parsing remain container-side — no shared state, scales linearly. Each job has isolated `logs/{jobId}/` directory. |
-| 100+ concurrent jobs | Bottleneck is GitHub Actions runner pool and SQLite (Event Handler side), not the observability layer. No changes to observability design needed. |
+| Current (~50 jobs/day) | No concerns. 3 extra GitHub API calls per job is negligible. SQLite handles job_outcomes easily. |
+| 1,000 jobs/day | GitHub API calls still well within 5,000/hour. job_outcomes table grows but SQLite handles 1M rows without indexes. Add created_at index if queries slow down. |
+| 10,000+ jobs/day | GitHub API rate limiting becomes real concern for repo context fetches. Implement per-repo caching of CLAUDE.md with 5-minute TTL in Event Handler memory. SQLite may need migration to PostgreSQL for job_outcomes if write contention increases. |
 
-The observability layer is stateless and container-scoped. It does not write to shared storage. It cannot become a bottleneck at the job container level.
+The job_outcomes table is append-only with no concurrent writes (GitHub webhooks are serialized through a single server process). No write contention concern at current scale.
 
 ---
 
 ## Sources
 
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/docker/job/Dockerfile` (live)
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/docker/job/entrypoint.sh` (live)
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/.github/workflows/run-job.yml`
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/.github/workflows/notify-pr-complete.yml`
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/instances/noah/config/AGENT.md`
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/codebase/ARCHITECTURE.md`
-- Direct codebase analysis: `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/PROJECT.md`
-- Confidence: HIGH for all entrypoint hook locations (verified against actual file line numbers)
-- Confidence: MEDIUM for claude-output.json schema (JSON stream format from `claude -p --output-format json` — structure inferred from Claude Code docs patterns, not directly observed from a real run)
+- Direct codebase inspection: `lib/tools/create-job.js` — confirmed job.md creation flow
+- Direct codebase inspection: `lib/ai/tools.js` — confirmed createJobTool schema and current parameters
+- Direct codebase inspection: `lib/tools/github.js` — confirmed githubApi() helper, confirmed GitHub API call patterns
+- Direct codebase inspection: `api/index.js` — confirmed webhook handler flow and notification creation
+- Direct codebase inspection: `.github/workflows/notify-pr-complete.yml` — confirmed webhook payload fields
+- Direct codebase inspection: `.github/workflows/notify-job-failed.yml` — confirmed failure notification flow
+- Direct codebase inspection: `.github/workflows/run-job.yml` — confirmed no timeout is set
+- Direct codebase inspection: `lib/db/schema.js` and `lib/db/job-origins.js` — confirmed existing schema and jobOrigins pattern to follow for job_outcomes
+- Direct codebase inspection: `lib/ai/agent.js` — confirmed LangGraph agent structure and tool registration
+- GitHub REST API docs: Contents API `GET /repos/{owner}/{repo}/contents/{path}` — confirmed response includes `content` (base64 encoded)
+- GitHub REST API docs: Trees API `GET /repos/{owner}/{repo}/git/trees/{tree_sha}` — confirmed recursive=false returns only root tree entries
+- Confidence: HIGH for all integration points (verified against live codebase with line-level precision)
+- Confidence: MEDIUM for job_outcomes schema design (pattern borrowed from job-origins.js, not directly validated)
 
 ---
 
-*Architecture research for: ClawForge — Claude Code CLI verification and observability in Docker*
-*Researched: 2026-02-23*
+*Architecture research for: ClawForge v1.1 — Smart job prompts, pipeline hardening, previous job context*
+*Researched: 2026-02-24*

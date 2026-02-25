@@ -1,8 +1,20 @@
 # Stack Research
 
-**Domain:** Claude Code CLI agent container verification and GSD skill integration
-**Researched:** 2026-02-23
-**Confidence:** HIGH for Claude Code CLI behavior / MEDIUM for GSD auto-invocation reliability / HIGH for Docker path resolution
+**Domain:** Claude Code agent platform — smart job prompts, pipeline hardening, previous job context injection
+**Researched:** 2026-02-24
+**Confidence:** HIGH — all findings grounded in direct codebase inspection + official API docs
+
+---
+
+## Scope
+
+This research covers ONLY the new capabilities in milestone v1.1:
+
+1. **Smart job prompts** — Event Handler fetches CLAUDE.md, package.json, and tech stack from target repo before dispatching
+2. **Pipeline hardening** — Conditional PR creation, better error handling, notification accuracy
+3. **Previous job context injection** — Agent starts with awareness of recent completed jobs
+
+The v1.0 stack (LangGraph, Claude Code CLI, GSD, Docker, GitHub Actions, SQLite/Drizzle) is validated and NOT re-researched here.
 
 ---
 
@@ -10,210 +22,173 @@
 
 ### Core Technologies
 
+No new core framework additions are needed. The three new feature areas map cleanly onto existing infrastructure.
+
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `@anthropic-ai/claude-code` | 2.1.50 (latest) | Claude Code CLI running inside Docker job container | The agent runtime. Already installed globally via `npm install -g`. Dockerfile uses `@latest` tag — must pin to avoid surprise upgrades. |
-| Node.js | 22 (bookworm-slim) | Runtime for Claude Code CLI and parse-job-output.js | Claude Code 2.x requires Node 18+; Node 22 LTS provides stability. Already in Dockerfile. |
-| `get-shit-done-cc` | 1.20.6 (latest as of 2026-02-23) | GSD skill system installed globally into container image | Installs to `~/.claude/commands/gsd/` (not `~/.claude/skills/`). Registers hooks in `~/.claude/settings.json`. |
-| `jq` | system package (Debian bookworm) | Parse `claude-output.json` after `claude -p` completes | Already installed in Dockerfile. Required for stream-json parsing without Node runtime overhead. |
-| Bash | system (bash 5.x) | Entrypoint scripting and pre-flight verification | Already the entrypoint shell. Sufficient for environment checks, fail-fast logic, and jq pipeline invocation. |
+| GitHub REST API `/repos/{owner}/{repo}/contents/{path}` | v2022-11-28 (current) | Fetch CLAUDE.md, package.json from target repo before dispatching a job | Already used in `lib/tools/github.js` via native `fetch()` with Bearer auth. The `/contents/` endpoint returns base64-encoded file content. No new SDK needed — extend the existing `githubApi()` helper. |
+| Drizzle ORM (`drizzle-orm` 0.44.0) | already installed | Query `job_origins` table for recent jobs to inject as previous-job context | Already installed. Add `getRecentJobOrigins(threadId, limit)` to `lib/db/job-origins.js`. Uses existing `desc()`, `limit()`, `where()` pattern. No new library. |
+| `better-sqlite3` 12.6.2 | already installed | Back Drizzle queries for job history | Already installed. No change. |
+| Node.js `Buffer` (built-in) | Node 22 (already in Dockerfile) | Decode base64 content from GitHub Contents API response | Standard: `Buffer.from(response.content, 'base64').toString('utf8')`. No additional dependency. |
+| Bash (already in entrypoint) | bash 5.x (bookworm) | Conditional PR creation — check git diff before `gh pr create` | Already the entrypoint shell. `git diff --quiet HEAD` exits non-zero if there are commits beyond main; used to skip PR creation when Claude made no commits. |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| Node.js (built-in) `fs`, `readline` | N/A (Node 22 stdlib) | Parse `claude-output.json` line-by-line in a post-run Node.js script | When jq pipeline becomes too complex for multi-step extraction (e.g., correlating tool_use + tool_result pairs to verify GSD call results). Use for Phase 2 observability. |
-| `gh` (GitHub CLI) | latest (from official apt repo) | Create PRs and authenticate git operations | Already installed. No change. |
+| None new | — | — | All new features compose on existing infrastructure |
+
+No new npm dependencies are needed for any of the three feature areas.
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Docker Desktop / Docker Engine | Build and run job container locally for testing | Use `docker build -t clawforge-job docker/job/` and `docker run` with env vars for local test harness. No external services needed. |
-| `docker inspect` + `docker exec` | Verify container filesystem layout after build | Use `docker run --entrypoint /bin/bash` to explore `/root/.claude/` post-install during Dockerfile development. |
-| `jq` (local) | Validate `claude-output.json` structure manually | Run `jq '.' logs/{jobId}/claude-output.json \| head -50` against a real job output to confirm stream structure before writing parser. |
+| `jq` (already in Docker image) | Parse `package.json` fields (name, description, scripts) in entrypoint.sh before dispatch | Can extract `name`, `description`, `engines.node`, `scripts` keys from package.json in bash without Node.js |
+| `gh` CLI (already in Docker image) | Conditional PR creation via `gh pr create` with `--skip-if-empty` | `gh pr create` already used in entrypoint; add guard before calling it |
 
 ---
 
-## Critical Finding: How GSD Installs and Where Skills Live
+## Feature-by-Feature Stack Analysis
 
-**This is the most important finding for this milestone.**
+### Feature 1: Smart Job Prompts (Repo Context Injection)
 
-GSD installs to `~/.claude/commands/gsd/` — NOT to `~/.claude/skills/`. Each GSD command is a `.md` file at `~/.claude/commands/gsd/<command-name>.md`. The `--claude --global` installer also registers hooks in `~/.claude/settings.json` (SessionStart update checker, statusLine display).
+**What it does:** Before dispatching a job, the Event Handler reads CLAUDE.md, package.json, and any relevant context from the target repo, then injects it into the job description sent to Claude Code.
 
-Verified by inspecting the host system's actual GSD install at `/Users/nwessel/.claude/commands/gsd/`:
+**Where it lives:** `lib/tools/create-job.js` — the `createJob(jobDescription)` function.
+
+**What to add:** A new helper `getRepoContext(owner, repo, ref)` in `lib/tools/github.js` that calls the GitHub Contents API for each file. The function returns an object with `claudeMd`, `packageJson` (parsed), and `techStack` (derived from package.json `dependencies`). `createJob()` calls this before writing `logs/{jobId}/job.md`, then prepends a `## Repo Context` section to the job description.
+
+**GitHub Contents API — verified behavior:**
 ```
-add-phase.md, add-todo.md, audit-milestone.md, check-todos.md, cleanup.md,
-complete-milestone.md, debug.md, discuss-phase.md, execute-phase.md, health.md,
-help.md, insert-phase.md, list-phase-assumptions.md, map-codebase.md,
-new-milestone.md, new-project.md, pause-work.md, plan-milestone-gaps.md,
-plan-phase.md, progress.md, quick.md, reapply-patches.md, remove-phase.md,
-research-phase.md, resume-work.md, set-profile.md, settings.md, update.md
+GET /repos/{owner}/{repo}/contents/{path}
+Authorization: Bearer {GH_TOKEN}
+Accept: application/vnd.github+json
 ```
+Response: `{ content: "<base64>", encoding: "base64", size: <bytes> }`
+File not found: HTTP 404 — does NOT throw, `fetch()` returns `res.ok = false` silently. Must check `res.ok` before calling `res.json()`.
+Size limit: Up to 1MB in standard response. CLAUDE.md and package.json are well within this.
 
-GSD agents install to `~/.claude/agents/gsd-*.md` (executor, planner, verifier, researcher, etc.).
-
-**Confidence: HIGH** — Verified from direct filesystem inspection of a live GSD install.
-
----
-
-## Critical Finding: How Claude Code Discovers Skills and Commands
-
-Claude Code 2.x loads commands from `~/.claude/commands/` and skills from `~/.claude/skills/`. The `Skill` tool (when included in `--allowedTools`) provides access to skills from `~/.claude/skills/` directories. The legacy `commands/` directory supports subdirectory namespacing (`commands/gsd/quick.md` → `/gsd:quick`).
-
-**HOME environment variable is the key.** Claude Code resolves `~` using the `HOME` environment variable at runtime. In the job container:
-- Docker Node 22 base image runs as `root`, so `HOME=/root`
-- GSD installs via `npx get-shit-done-cc@latest --claude --global` during `docker build`, which runs as root
-- Therefore GSD installs to `/root/.claude/commands/gsd/` and `/root/.claude/agents/`
-- At `docker run` time, `HOME` defaults to `/root` in the Node base image — this should work
-- **Risk:** If any step in entrypoint.sh changes `HOME` (e.g., `gh auth setup-git` or git config) or if the container is run as a different user, `~/.claude/` resolution breaks silently
-
-**Confidence: HIGH** — Based on Docker Node.js base image conventions and GSD installer behavior. Needs runtime verification (which is exactly what the pre-flight check in entrypoint.sh will provide).
-
----
-
-## Critical Finding: `claude -p` Mode and Skill Tool Invocation
-
-**User-invoked skills (`/gsd:quick`) are NOT available in `-p` (headless) mode.** This is stated explicitly in official Claude Code documentation:
-
-> "User-invoked skills like `/commit` and built-in commands are only available in interactive mode. In `-p` mode, describe the task you want to accomplish instead."
-
-**However, model-invoked skills (via the `Skill` tool) DO work in `-p` mode.** When `Skill` is included in `--allowedTools`, Claude Code can invoke skills programmatically during the agent loop. The mechanism is:
-
-1. Skill descriptions are loaded into context so Claude knows what's available
-2. Claude invokes the `Skill(gsd:quick)` tool during the agent loop when it decides the skill is relevant
-3. The tool loads `~/.claude/commands/gsd/quick.md`, injects the skill content as a context message
-4. Claude executes the skill instructions within the same `-p` session
-
-The AGENT.md instruction in the current system ("Use `/gsd:*` commands via the Skill tool") is the correct approach — it instructs Claude to use `Skill(gsd:quick)` rather than `/gsd:quick`, which is the form that works in headless mode.
-
-**Confidence: HIGH** — Verified from official headless mode documentation and cross-referenced with the skills deep-dive article describing the Skill tool's mechanical operation.
-
----
-
-## Critical Finding: Skill Auto-Invocation Reliability
-
-**Auto-invocation of skills by Claude Code is unreliable — approximately 50% success rate in practice.**
-
-Multiple sources confirm this:
-- GitHub issue #11266 (closed as duplicate): Skills in `~/.claude/skills/` not auto-discovered even with correct structure
-- Scott Spence's blog post: Hook-based workaround achieved only 4-5/10 success across sessions
-- The fundamental reason: "The AI model makes the decision to invoke skills based on textual descriptions presented in its system prompt. There is no algorithmic skill selection."
-
-**Implication for ClawForge:** The current AGENT.md instruction ("Default choice: `/gsd:quick` for small tasks, `/gsd:plan-phase` + `/gsd:execute-phase` for anything substantial") is necessary but not sufficient. The agent will sometimes ignore these instructions and solve tasks without GSD.
-
-**Recommended mitigation:** The system prompt instruction should be imperative and prominent, not advisory. "You MUST use the Skill tool to invoke GSD commands for all substantial tasks" is more reliable than "Default choice: /gsd:quick". Verification of actual GSD invocation (via output log parsing) is the only way to confirm compliance after the fact.
-
-**Confidence: MEDIUM** — Multiple independent community sources agree on the reliability problem. Anthropic has not published official guidance on success rates. The pre-flight verification will help confirm whether the problem is discoverability (GSD not found) vs. instruction-following (GSD found but not used).
-
----
-
-## Critical Finding: `claude-output.json` Structure for Tool Usage Detection
-
-`claude -p --output-format json` produces a single JSON object at the end (not JSON lines). `--output-format stream-json` produces newline-delimited JSON objects during execution.
-
-The current entrypoint uses `--output-format json`, so `claude-output.json` is a single JSON object with this top-level structure:
-```json
-{
-  "result": "...",
-  "session_id": "...",
-  "cost_usd": ...,
-  "duration_ms": ...,
-  "num_turns": ...
+**Pattern for graceful 404 handling (fits codebase conventions):**
+```javascript
+async function getRepoFileContent(owner, repo, path, ref = 'main') {
+  const { GH_TOKEN } = process.env;
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${ref}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${GH_TOKEN}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }
+  );
+  if (!res.ok) return null; // 404 = file doesn't exist, not an error
+  const data = await res.json();
+  return Buffer.from(data.content, 'base64').toString('utf8');
 }
 ```
 
-**To detect tool usage, use `--output-format stream-json` instead.** Stream-json emits one JSON object per line, including tool_use events:
-```json
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}}
-{"type":"tool_use","name":"Skill","input":{"name":"gsd:quick","arguments":"..."}}
-{"type":"tool_result","tool_use_id":"...","content":"..."}
-```
+**Target repo lookup:** The Event Handler already has `GH_OWNER` and `GH_REPO` env vars scoped to the ClawForge/StrategyES repo. For smart prompts, the target repo context is the same repo the job will execute in — so `GH_OWNER`/`GH_REPO` correctly identifies the right repo for fetching context. No new env vars needed.
 
-To detect Skill tool invocations in stream-json output:
+**Rate limit consideration:** Each `createJob()` call adds 2 GitHub API calls (CLAUDE.md + package.json). Existing `getJobStatus()` already does multiple calls per invocation. At the current volume (< 50 jobs/day), this is well within the 5,000 req/hour authenticated limit. No caching needed yet.
+
+**Confidence: HIGH** — verified from official GitHub Docs for `/repos/{owner}/{repo}/contents/{path}` and direct inspection of `lib/tools/github.js` (the `githubApi()` helper pattern to extend).
+
+---
+
+### Feature 2: Pipeline Hardening
+
+**Conditional PR creation (entrypoint.sh):**
+
+Current: `gh pr create` runs if `CLAUDE_EXIT -eq 0` regardless of whether Claude committed anything.
+Problem: Claude may succeed (exit 0) but make no commits (e.g., read-only job, or task completed in a single response). Empty PRs pollute auto-merge queue and confuse notifications.
+
+**Fix:** Check for commits beyond main before calling `gh pr create`:
+
 ```bash
-grep '"type":"tool_use"' "${LOG_DIR}/claude-output.json" | \
-  jq -r 'select(.name == "Skill") | .input.name // empty'
+# Count commits on this branch that aren't on main
+COMMITS_AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+
+if [ "$CLAUDE_EXIT" -eq 0 ] && [ "$COMMITS_AHEAD" -gt 0 ]; then
+    gh pr create \
+        --title "clawforge: job ${JOB_ID}" \
+        --body "Automated job by ClawForge" \
+        --base main || true
+elif [ "$CLAUDE_EXIT" -eq 0 ] && [ "$COMMITS_AHEAD" -eq 0 ]; then
+    echo "Job succeeded but made no commits — skipping PR creation"
+fi
 ```
 
-**Alternative for `--output-format json`:** Use `--verbose` flag. With verbose mode, the single JSON output includes an `assistant_messages` array containing the full conversation with tool_use blocks.
+This uses standard Git CLI already in the Docker image. No new tools.
 
-**Recommendation:** Switch the entrypoint from `--output-format json` to `--output-format stream-json` and rename the output file to `claude-output.jsonl`. This enables real-time tool detection during parsing AND fixes the file extension mismatch with `notify-pr-complete.yml` (which looks for `*.jsonl`).
+**Notification accuracy (`notify-job-failed.yml`):**
 
-**Confidence: MEDIUM** — The stream-json format is documented. The exact field names for tool_use events in the stream (`"type":"tool_use"`, `"name"`, `"input"`) are derived from the Agent SDK docs and community parsing examples. Should be validated against an actual job run before finalizing the parser.
+Current problem: `notify-job-failed.yml` references `logs/${JOB_ID}/claude-output.json` but Phase 2 switched the output file to `.jsonl`. This causes the failure notification to send empty log content.
 
----
+Fix: Update the file reference from `claude-output.json` to `claude-output.jsonl`. This is a one-line YAML change — no library addition.
 
-## What NOT to Use
+**GitHub webhook `notify-pr-complete.yml` — silent PR-not-found failure:**
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| `--dangerously-skip-permissions` | Removes security model; does not fix GSD invocation. GSD non-invocation is a path or prompt issue, not a permissions issue. | `--allowedTools` with `Skill` explicitly listed |
-| `/gsd:quick` syntax in AGENT.md as-is | User-invoked slash commands don't work in `-p` mode. They are interactive-only. | `Skill(gsd:quick)` tool invocation syntax in AGENT.md instructions |
-| Relying on skill auto-invocation alone | ~50% success rate. Skills are loaded into context but Claude frequently ignores them. | Strong imperative instructions in AGENT.md + verification that Skill tool was called |
-| Mounting `~/.claude/` from host | Introduces host secrets into container; breaks isolation. GSD should be baked into the image at build time. | `npx get-shit-done-cc@latest --claude --global` in Dockerfile |
-| Using `npm install -g @anthropic-ai/claude-code` without a pinned version | `@latest` changes on every build; agent behavior may shift without notice. | Pin to a specific version (e.g., `@2.1.50`) in Dockerfile with a comment for update policy |
-| `--output-format json` for tool usage detection | The single JSON object at the end does not include tool_use events in a parseable stream. | `--output-format stream-json` (rename output file to `.jsonl`) |
-| Testing via live Slack → Archie → GitHub Actions pipeline | Slow (~5 min round trip), non-deterministic, requires production credentials. Not suitable for iteration. | Local `docker run` with a fixed fixture job.md |
-| Adding GSD detection logic to the Event Handler | Event Handler receives summarized webhook payload, not the raw tool call stream. Detection there is unreliable. | Parse `claude-output.jsonl` inside the job container immediately after `claude -p` completes |
+Current: If no PR was created (e.g., no commits), the `notify-pr-complete.yml` step fails with "No PR found for branch" and exits 1, causing a missed notification. This propagates a pipeline failure when the job actually succeeded.
+
+Fix: Add `continue-on-error: true` to the "Get PR number" step, OR restructure to check PR existence before attempting notification. Preferred: skip notification gracefully if no PR found, send a lightweight "job completed, no changes" payload instead.
+
+**Confidence: HIGH** — verified from direct inspection of `entrypoint.sh`, `notify-job-failed.yml`, and `notify-pr-complete.yml`.
 
 ---
 
-## Stack Patterns by Variant
+### Feature 3: Previous Job Context Injection
 
-**Pre-flight verification (Bash in entrypoint.sh):**
-- Use `command -v claude` to verify the binary is on PATH
-- Use `[ -d "${HOME}/.claude/commands/gsd/" ]` to verify GSD is installed (check commands/, not skills/)
-- Use `[ -d "${HOME}/.claude/agents/" ]` to verify GSD agents are installed
-- Use `echo "HOME=${HOME}"` to surface the actual HOME value to the log
-- Exit non-zero only on hard failures (missing binary, missing API key); soft-warn on GSD path issues
-- Write results to `${LOG_DIR}/preflight.md` via `tee`
+**What it does:** When the agent dispatches a job for a thread, it retrieves the last N completed jobs for that thread and includes a summary in the job prompt, so Claude Code starts warm.
 
-**Tool usage detection (jq on stream-json output):**
+**Where context lives:** Two sources:
+1. `job_origins` table: maps `jobId → threadId`. Has `createdAt` timestamp. Queryable with Drizzle.
+2. `notifications` table: contains the summarized job result for each completed job (stored in `notification` column).
+
+**Data model gap:** The `job_origins` table tracks job creation but NOT job completion status or result. The `notifications` table stores results but is NOT indexed by `threadId` or `jobId` — it stores the full JSON payload in `payload` (text). To join previous jobs to their results requires either:
+  - A: Querying `job_origins` by `threadId`, then looking up each `jobId` in notifications.payload (JSON substring match — fragile)
+  - B: Adding a `threadId` column to `notifications` at completion time
+  - C: Storing the last N job summaries in the `settings` table keyed by `threadId`
+  - **Recommended: Option A for now** — query `job_origins` for recent jobs in this thread, then for each `jobId` scan `notifications.payload` for a match. At < 50 jobs total this is acceptable. When payload grows, add a `jobId` index.
+
+**Query pattern for recent jobs (uses existing Drizzle pattern in codebase):**
+```javascript
+// lib/db/job-origins.js — new function
+import { eq, desc } from 'drizzle-orm';
+
+export function getRecentJobOriginsByThread(threadId, limit = 3) {
+  const db = getDb();
+  return db
+    .select()
+    .from(jobOrigins)
+    .where(eq(jobOrigins.threadId, threadId))
+    .orderBy(desc(jobOrigins.createdAt))
+    .limit(limit)
+    .all();
+}
+```
+
+**Agent injection mechanism:** The existing `addToThread()` function in `lib/ai/index.js` injects AI messages into thread memory. However, for previous-job context, the better approach is injecting it into the job description itself (in `createJob()`), not into the agent's conversation state. Reason: the job container runs in isolation and doesn't share LangGraph state. The job prompt is the only communication channel into the container.
+
+**Implementation:** `createJob()` calls `getRecentJobOriginsByThread(threadId, 3)`, queries `notifications` for each `jobId`, extracts the `notification` summary text, and prepends a `## Previous Jobs` section to the job description.
+
+**Confidence: HIGH** — based on direct inspection of `lib/db/schema.js`, `lib/db/job-origins.js`, `lib/db/notifications.js`, and `lib/tools/create-job.js`.
+
+---
+
+## Installation
+
+No new packages to install. All three features use existing infrastructure.
+
 ```bash
-# Detect Skill tool invocations in stream-json output
-jq -r 'select(type == "object") | select(.type == "tool_use") | select(.name == "Skill") | .input.name // empty' \
-  "${LOG_DIR}/claude-output.jsonl" 2>/dev/null | grep "^gsd:" | wc -l
+# No new npm install required
+# All features compose on:
+# - lib/tools/github.js (githubApi helper)
+# - lib/db/job-origins.js (Drizzle + better-sqlite3)
+# - lib/db/notifications.js (Drizzle + better-sqlite3)
+# - docker/job/entrypoint.sh (bash + git + gh CLI)
 ```
-
-**GSD invocation in system prompt (correct for -p mode):**
-```markdown
-For all substantial tasks, you MUST invoke GSD workflows using the Skill tool:
-- Skill(gsd:quick) for ad-hoc tasks
-- Skill(gsd:plan-phase) followed by Skill(gsd:execute-phase) for multi-step work
-Do NOT attempt substantial work without GSD unless the task is trivial (single file edit, read-only lookup).
-```
-
-**If GSD install is failing silently during Docker build:**
-- Add `RUN ls /root/.claude/commands/gsd/ && echo "GSD install verified"` after the `npx get-shit-done-cc` step
-- This causes the build to fail loudly if GSD didn't install, rather than silently producing a broken image
-
----
-
-## Version Compatibility
-
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| `@anthropic-ai/claude-code@2.1.50` | Node 22 bookworm-slim | Node 22 LTS is the recommended base. `better-sqlite3` and other native deps compile correctly on bookworm (glibc). |
-| `get-shit-done-cc@1.20.6` | Claude Code 2.1.x | GSD v1.20.x targets Claude Code 2.x commands/ directory structure. The skills/ migration path exists for Codex but is not the default for Claude Code installs as of 2026-02-23. |
-| Claude Code 2.1.x `--allowedTools Skill` | GSD commands in `~/.claude/commands/gsd/` | The `Skill` tool in Claude Code 2.1.x loads from both `commands/` (legacy) and `skills/` directories. Both work. |
-| `--output-format stream-json` | Claude Code 2.x | Stream-json is stable in Claude Code 2.x. The format is: one JSON object per line, tool_use events have `type`, `name`, `input` fields. |
-
----
-
-## GSD Install Verification Pattern (Dockerfile)
-
-Add this immediately after the `npx get-shit-done-cc@latest --claude --global` line in `docker/job/Dockerfile`:
-
-```dockerfile
-# Verify GSD installed correctly (fail build if not)
-RUN ls /root/.claude/commands/gsd/quick.md || (echo "ERROR: GSD install failed" && exit 1)
-RUN ls /root/.claude/agents/gsd-executor.md || (echo "ERROR: GSD agents not installed" && exit 1)
-```
-
-This converts a silent GSD install failure into a loud Docker build failure — much better than discovering GSD is missing at job runtime.
-
-**Confidence: HIGH** — Standard Dockerfile verification pattern. The paths (`/root/.claude/commands/gsd/quick.md`) are confirmed from direct GSD install inspection.
 
 ---
 
@@ -221,31 +196,90 @@ This converts a silent GSD install failure into a loud Docker build failure — 
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| `jq` for stream-json parsing | Node.js script | Use Node.js when tool_use/tool_result correlation is needed (e.g., verifying GSD skill actually produced output, not just that it was invoked). For simple "was Skill called?" detection, jq is sufficient and has no additional dependencies. |
-| `--output-format stream-json` | `--output-format json --verbose` | `--verbose` with json mode includes full message history in the output, but the structure is less predictable. Use stream-json for all new work. |
-| Pin Claude Code version in Dockerfile | `@latest` tag | Use `@latest` ONLY if you have an automated test harness that catches behavioral regressions before the image hits production. Currently there is no test harness, so pin the version. |
-| `~/.claude/commands/gsd/` path verification | `~/.claude/skills/gsd-*/` | GSD for Claude Code uses `commands/`, not `skills/`. The skills/ directory in `~/.claude/` contains non-GSD skills. Do not look for GSD in `skills/`. |
-| Imperative system prompt for GSD invocation | Descriptive system prompt ("Default choice is /gsd:quick") | Use descriptive language only if auto-invocation success rate is acceptable. Given ~50% reliability, imperative is required for a production agent. |
+| Extend `githubApi()` in `github.js` | Add `@octokit/rest` SDK | Use Octokit if you need pagination, GraphQL, retry logic, or type safety. At current scale, the existing `fetch()` wrapper is sufficient and adds no dependency. |
+| Query `job_origins` + `notifications` via Drizzle | LangGraph `getStateHistory()` | Use `getStateHistory()` only if you need the full conversation replay (all message turns). For "last N job summaries," `notifications` table is simpler and already stores the right data. |
+| Inject repo context into job description (job.md) | Inject via `--append-system-prompt` | Use `--append-system-prompt` if context is static per-instance (like SOUL.md). Dynamic per-repo context belongs in the job prompt, not the system prompt, because it changes per job. |
+| `git rev-list --count origin/main..HEAD` for conditional PR | `git status --porcelain` | `git status --porcelain` checks for uncommitted changes; `rev-list --count` checks for commits beyond main. Use `rev-list` — Claude Code commits changes before exiting, so the question is "did commits happen?" not "are there uncommitted files?". |
+| Graceful 404 return `null` from `getRepoFileContent()` | Throw on 404 | Throw only if CLAUDE.md is required. Since CLAUDE.md may not exist in every target repo, returning `null` and skipping that context section is correct. |
+
+---
+
+## What NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `@octokit/rest` or `@octokit/graphql` | Zero marginal benefit vs. the existing `githubApi()` pattern. Adds 300KB+ to the bundle and a new dep to maintain. | `githubApi()` in `lib/tools/github.js` — the existing `fetch()`-based helper with `X-GitHub-Api-Version: 2022-11-28` |
+| Injecting repo context via agent system prompt (`EVENT_HANDLER.md`) | System prompt is static at agent startup. Repo context must be dynamic per-job (different repos, different CLAUDE.md). | Inject via `createJob()` into `job.md` — the job description is the dynamic payload. |
+| Caching GitHub Contents API responses in SQLite | Premature optimization at current volume. A stale CLAUDE.md is worse than a fresh API call. | No cache. The GitHub API call adds ~100ms to job dispatch — acceptable latency. |
+| LangGraph `InjectedState` for passing previous job context to `create_job` tool | Community finding: tools using `InjectedState` are frequently ignored by the LLM. The agent stops calling the tool reliably. | Pass context directly into `job_description` argument — the agent sends it explicitly, no hidden state injection. |
+| Adding a `completed_at` or `result` column to `job_origins` table | Premature schema expansion. Completion data already lives in `notifications`. | Join `job_origins` + `notifications` at query time. Add schema columns only if query becomes slow. |
+| Empty commit guard with `git commit --allow-empty` | Creates noise in git history. The auto-merge + notification pipeline treats any commit as work done. | Skip the commit step if `git status --porcelain` is empty after claude runs. |
+
+---
+
+## Stack Patterns by Variant
+
+**If target repo has no CLAUDE.md:**
+- `getRepoFileContent()` returns `null` for that path
+- Skip the `## Repo Context` section in the job description
+- Still include package.json context if available
+
+**If target repo is private and `GH_TOKEN` has read access:**
+- No change — `GH_TOKEN` already scoped to the instance repo (which may be private)
+- For cross-repo context (e.g., Noah's agent reading a client repo), would need a new token scope — defer to future milestone
+
+**If job thread has no previous jobs:**
+- `getRecentJobOriginsByThread(threadId, 3)` returns `[]`
+- Skip the `## Previous Jobs` section entirely
+- No error, no fallback needed
+
+**If Claude exit code is non-zero but commits were made:**
+- Still push commits (current behavior)
+- Skip PR creation (current behavior is correct — failure notified via `notify-job-failed.yml`)
+- The new `COMMITS_AHEAD` check only applies within the success branch
+
+---
+
+## Version Compatibility
+
+| Component | Current Version | Notes |
+|-----------|-----------------|-------|
+| `drizzle-orm` 0.44.0 | Node 22, better-sqlite3 12.6.2 | `desc()`, `limit()`, `where()` chaining confirmed working in existing `lib/db/chats.js`. The new `getRecentJobOriginsByThread()` uses the same pattern. |
+| GitHub API `v2022-11-28` | Current (no deprecation announced as of 2026-02) | Contents endpoint is stable. Base64 encoding is the default and only option for files ≤ 1MB. |
+| `Buffer.from(content, 'base64')` | Node 22 | Built-in. No polyfill. Works identically to Node 18+. |
+| `git rev-list --count` | git 2.x (bookworm includes 2.39) | Standard git command. `--count` flag stable since git 1.9. |
+
+---
+
+## Integration Points (Where Code Changes Land)
+
+| File | What Changes | Why |
+|------|-------------|-----|
+| `lib/tools/github.js` | Add `getRepoContext(owner, repo, ref)` and `getRepoFileContent(owner, repo, path, ref)` | Smart job prompts — fetch CLAUDE.md + package.json before dispatch |
+| `lib/tools/create-job.js` | Call `getRepoContext()` and `getRecentJobOriginsByThread()`, prepend context sections to job description | Smart job prompts + previous job context injection |
+| `lib/db/job-origins.js` | Add `getRecentJobOriginsByThread(threadId, limit)` | Previous job context: query recent jobs for this thread |
+| `lib/db/notifications.js` | Add `getNotificationByJobId(jobId)` — scan notifications.payload for jobId match | Previous job context: retrieve job result summaries |
+| `docker/job/entrypoint.sh` | Add `git rev-list --count origin/main..HEAD` guard before `gh pr create` | Conditional PR — avoid empty PRs when Claude makes no commits |
+| `.github/workflows/notify-job-failed.yml` | Change `claude-output.json` reference to `claude-output.jsonl` | Fix silent empty log in failure notifications |
+| `.github/workflows/notify-pr-complete.yml` | Add graceful handling when no PR found (job succeeded with no changes) | Pipeline accuracy — don't fail notification on no-PR jobs |
 
 ---
 
 ## Sources
 
-- Official Claude Code docs: `https://code.claude.com/docs/en/skills` — Skill discovery paths, ~/.claude/ structure, user-invocable vs model-invoked, headless mode limitation
-- Official Claude Code docs: `https://code.claude.com/docs/en/headless.md` — Confirmed `-p` mode limitations: "User-invoked skills like /commit and built-in commands are only available in interactive mode."
-- Official Claude Code docs: `https://code.claude.com/docs/en/cli-reference.md` — `--allowedTools`, `--output-format`, `--append-system-prompt` flags
-- Official Claude Code docs: `https://platform.claude.com/docs/en/agent-sdk/structured-outputs` — stream-json and json output format structure
-- GitHub issue #11266 anthropics/claude-code (MEDIUM confidence) — "User skills in ~/.claude/skills/ not auto-discovered" — closed as duplicate of #9716
-- GitHub issue #218 gsd-build/get-shit-done (MEDIUM confidence) — "GSD commands may not work after Claude Code update" — closed Jan 29 2026, confirmed commands/ → skills/ migration for 2.1.x
-- Scott Spence blog: `https://scottspence.com/posts/claude-code-skills-dont-auto-activate` (MEDIUM) — 50% auto-invocation success rate in practice
-- Lee Hanchung deep dive: `https://leehanchung.github.io/blogs/2025/10/26/claude-skills-deep-dive/` (MEDIUM) — Skill tool mechanical operation: validation → permission check → file loading → context injection
-- Direct filesystem inspection: `/Users/nwessel/.claude/commands/gsd/` (HIGH) — Confirmed GSD installs to commands/, not skills/; confirmed agent file list
-- Direct codebase inspection: `/Users/nwessel/Claude Code/Business/Products/clawforge/docker/job/Dockerfile` (HIGH) — Current container setup
-- Direct codebase inspection: `/Users/nwessel/Claude Code/Business/Products/clawforge/docker/job/entrypoint.sh` (HIGH) — Current entrypoint and --output-format json usage
-- npm registry: `@anthropic-ai/claude-code` version 2.1.50 (HIGH) — Current latest version as of 2026-02-23
-- GSD changelog: `https://github.com/gsd-build/get-shit-done/blob/main/CHANGELOG.md` (HIGH) — Current version 1.20.6
+- GitHub Docs: `https://docs.github.com/en/rest/repos/contents` — Contents API endpoint structure, base64 encoding, 404 behavior, 1MB size limit (HIGH confidence, verified from official docs)
+- Direct codebase inspection: `lib/tools/github.js` — `githubApi()` pattern, existing fetch wrapper with `X-GitHub-Api-Version: 2022-11-28` header (HIGH confidence)
+- Direct codebase inspection: `lib/tools/create-job.js` — Job creation flow, where to inject context (HIGH confidence)
+- Direct codebase inspection: `lib/db/schema.js` — Schema for `job_origins`, `notifications`, `messages` — confirms no `threadId` on notifications (HIGH confidence)
+- Direct codebase inspection: `lib/db/chats.js` — Drizzle `desc()` + `limit()` + `orderBy()` pattern to replicate (HIGH confidence)
+- Direct codebase inspection: `lib/db/notifications.js` — `notification` column stores LLM-generated summary text (HIGH confidence)
+- Direct codebase inspection: `docker/job/entrypoint.sh` — Current PR creation logic, git setup, bash patterns (HIGH confidence)
+- Direct codebase inspection: `.github/workflows/notify-job-failed.yml` — `claude-output.json` reference bug (HIGH confidence)
+- LangGraph JS docs: `https://langchain-ai.github.io/langgraphjs/reference/classes/langgraph.CompiledStateGraph.html` — `getState()` / `getStateHistory()` API (MEDIUM confidence — confirmed InjectedState reliability issue from community reports)
+- Community finding on `InjectedState`: `https://langchain-ai.github.io/langgraphjs/` — tools using InjectedState ignored by LLM (MEDIUM confidence — community source, aligns with known LangGraph tool behavior)
+- `git rev-list --count` — standard git documentation (HIGH confidence — stable flag since git 1.9)
 
 ---
 
-*Stack research for: ClawForge GSD integration verification and hardening*
-*Researched: 2026-02-23*
+*Stack research for: ClawForge v1.1 — Smart job prompts, pipeline hardening, previous job context*
+*Researched: 2026-02-24*

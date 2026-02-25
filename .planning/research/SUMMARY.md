@@ -1,170 +1,247 @@
 # Project Research Summary
 
-**Project:** ClawForge — GSD Integration Verification & Hardening
-**Domain:** Claude Code CLI agent observability in Docker job containers
-**Researched:** 2026-02-23
-**Confidence:** HIGH (stack, architecture, pitfalls) / MEDIUM (GSD auto-invocation reliability)
+**Project:** ClawForge v1.1 — Smart Job Prompts, Pipeline Hardening, Previous Job Context
+**Domain:** Claude Code CLI agent orchestration — context injection, pipeline reliability, job history
+**Researched:** 2026-02-24
+**Confidence:** HIGH
 
 ## Executive Summary
 
-ClawForge's job containers already have the structural ingredients for GSD integration: Claude Code 2.1.x with `--allowedTools Skill,Task`, `get-shit-done-cc` installed globally, and a two-stage entrypoint that builds a system prompt and invokes `claude -p`. The problem is that both recorded production job runs failed at the most basic level — `claude -p` received no input prompt, producing only "Input must be provided either through stdin or as a prompt argument" in the output. This means zero real evidence exists on whether GSD is discoverable or used by the agent. Everything else — hook design, output parsing, AGENT.md instruction quality — is speculation until the root cause of the empty prompt is diagnosed and fixed.
+ClawForge v1.1 is an enhancement milestone for an existing, working agentic pipeline. The v1.0 foundation (LangGraph Event Handler, Claude Code job containers, GitHub Actions orchestration, SQLite/Drizzle for job tracking) is validated and stable. The three v1.1 capabilities — smart job prompts, pipeline hardening, and previous job context injection — are additive to this foundation and require no new runtime dependencies, no new channels, and no new infrastructure. All implementation lands in existing modules (`lib/tools/`, `lib/db/`, `lib/ai/`, GitHub Actions workflows), with one new module (`lib/tools/repo-context.js`) and one new DB table (`job_outcomes`).
 
-The recommended approach treats this as a three-phase hardening effort: (1) fix the broken entrypoint and verify GSD is actually installed and discoverable at runtime, (2) add structured observability so GSD invocations are recorded and visible without manual log spelunking, and (3) run a test harness that proves the full chain end-to-end. The key architectural insight is that all verification work belongs inside the job container execution flow — not in the Event Handler — because the container has direct access to the raw tool call stream while the Event Handler only sees a summarized webhook payload.
+The recommended build sequence is fixed by dependency: pipeline hardening first (lowest risk, establishes reliable test outcomes for the other two features), repo context injection second (purely additive, no schema changes, fastest to validate by inspecting `job.md`), and previous job context third (requires schema migration, new DB module, and webhook handler coordination — highest moving-part count). The most consequential architectural decision in the milestone is where repo context is fetched: inside the job container after clone (reading from `/job/CLAUDE.md` on disk) is the safe, fresh approach; Event Handler pre-fetching before branch creation risks serving stale context if the target repo advances during the job queue delay. Research recommends entrypoint-side reading as the primary mechanism.
 
-The primary risk is that GSD auto-invocation is unreliable by design: community sources report roughly 50% success rates even when GSD is correctly installed and discoverable. The mitigation is two-pronged — strengthen AGENT.md instructions to be imperative rather than advisory, and add PostToolUse hook-based logging so operators can verify after each job whether GSD was actually called. Neither mitigation can be validated until the entrypoint prompt delivery bug is fixed first.
+The top security concern is indirect prompt injection via CLAUDE.md fetched from target repos — confirmed as an active attack vector by Snyk ToxicSkills research and CVE-2025-54794. Mitigations are required before smart prompts ship: wrap injected CLAUDE.md in explicit "read-only reference" framing, strip second-person imperatives, and limit fetching to repos within `GH_OWNER`. The top operational concern across all three features is that context fetching must be best-effort — a missing CLAUDE.md, GitHub API timeout, or rate limit response must never block job creation. Timeout wrappers with graceful empty-string fallbacks are mandatory.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing stack is correct and requires no new technologies. Claude Code 2.1.50 on Node 22 (bookworm-slim) with `get-shit-done-cc@1.20.6` is the right foundation. The critical insight is that GSD installs to `~/.claude/commands/gsd/` and `~/.claude/agents/` — NOT `~/.claude/skills/` — and the `HOME` environment variable is what determines where Claude Code discovers these artifacts at runtime. In the job container, `HOME=/root` is an implicit assumption (no explicit `ENV HOME=/root` directive in the Dockerfile) that holds today but is fragile.
+No new npm dependencies are required for any of the three feature areas. All new capabilities compose on the existing stack. The GitHub Contents API (`/repos/{owner}/{repo}/contents/{path}`) is accessed via the existing `githubApi()` helper in `lib/tools/github.js` — no new SDK needed. Drizzle ORM with `better-sqlite3` handles the new `job_outcomes` table using the same `desc()`/`limit()`/`where()` pattern already in `lib/db/chats.js`. Conditional PR creation is a one-line bash guard using `git rev-list --count origin/main..HEAD`, already available in the Docker image.
 
-**Core technologies:**
-- `@anthropic-ai/claude-code@2.1.50`: Claude Code CLI runtime — pin the version; `@latest` changes behavior without notice
-- `get-shit-done-cc@1.20.6`: GSD skill system — installs to `~/.claude/commands/gsd/` and `~/.claude/agents/`; verify both directories at build time
-- Node 22 (bookworm-slim): Container base — required for Claude Code 2.x; runs as root so `HOME=/root` holds
-- `--output-format stream-json`: Replace the current `--output-format json` — stream-json emits tool_use events per line, enabling GSD detection; the current json format emits only a final summary
-- `jq`: Already installed — sufficient for Phase 1 GSD detection; switch to a Node.js script for Phase 2 when tool_use/tool_result correlation is needed
+**Core technologies (all pre-existing):**
+- **GitHub REST API v2022-11-28**: Fetch CLAUDE.md and package.json from target repos — extend existing `githubApi()` helper; no new SDK; base64 decode via `Buffer.from(response.content, 'base64').toString('utf8')`
+- **Drizzle ORM 0.44.0 + better-sqlite3 12.6.2**: New `job_outcomes` table using exact same patterns as `lib/db/chats.js` and `lib/db/job-origins.js`
+- **bash + git + gh CLI (already in Docker image)**: `git rev-list --count origin/main..HEAD` for conditional PR guard; `cat /job/CLAUDE.md` for entrypoint-side context reading
+- **Node.js `Buffer` (built-in, Node 22)**: Base64 decode for GitHub Contents API responses
 
-**What NOT to use:**
-- `/gsd:quick` slash-command syntax in AGENT.md — user-invoked commands are interactive-only; headless `-p` mode requires `Skill(gsd:quick)` invocation syntax
-- `--dangerously-skip-permissions` — does not fix GSD non-invocation; the issue is path resolution or prompt instruction, not permissions
-- Mounting `~/.claude/` from host — breaks isolation and introduces host secrets
+**Key stack decision — where to fetch context:** STACK.md recommends fetching in `createJob()` (Event Handler). PITFALLS.md (Pitfall 1) identifies that this produces stale context if the target repo advances between job creation and container execution. Resolution: read CLAUDE.md and package.json from the cloned repo inside `entrypoint.sh` as the authoritative source; Event Handler pre-fetching is a warm-start supplement only. For initial v1.1 implementation, entrypoint-side reads are the recommended approach.
 
 ### Expected Features
 
-The milestone goal is narrow: prove that GSD is discoverable and invoked by the agent in production job runs. Features are scoped to that question only.
+**Must have (table stakes for v1.1):**
+- **Pipeline hardening — conditional PR on success only**: Verify end-to-end `CLAUDE_EXIT != 0` suppresses PR; `notify-job-failed.yml` fires correctly for real failures
+- **Pipeline hardening — failure notification to originating channel**: Failed Slack-dispatched jobs notify in the originating Slack thread
+- **Pipeline hardening — failure stage categorization**: Notification distinguishes `docker_pull_failed` / `auth_failed` / `claude_failed` so operators debug the right layer
+- **Repo context in job description**: CLAUDE.md + package.json embedded in `job.md` before container execution; agent starts warm, not cold-discovering the stack
+- **Structured job description template**: Consistent sections (Target, Context, Stack, Task, GSD Hint) for reliable agent anchoring
+- **Quick vs plan-phase routing heuristic**: Keyword-based GSD command suggestion in job description
 
-**Must have (table stakes):**
-- Fix entrypoint prompt delivery — `FULL_PROMPT` is empty in both recorded runs; this is the blocker for everything else
-- GSD path confirmed at runtime — diagnostic echo of `HOME` and `ls ~/.claude/commands/gsd/` before `claude -p`
-- Skill tool appears as identifiable event in output — needed to prove GSD invocations are detectable
-- Template drift resolved — `templates/docker/job/` is missing GSD install and `Task,Skill` from `ALLOWED_TOOLS`; testing the template tests a broken image
+**Should have (add after v1.1 validation):**
+- **Previous job context injection**: Prior job PR summary and changed files injected when follow-up messages reference a completed job; HIGH value, HIGH complexity (requires `job_outcomes` schema, webhook handler, new agent tool)
+- **Repo context cache with 60-second TTL**: In-memory Map per repo to prevent GitHub API rate exhaustion on burst job creation
+- **Notification accuracy audit**: Review 10+ real job outcomes to find routing gaps
 
-**Should have (differentiators):**
-- PostToolUse hook for Skill logging — writes `gsd-invocations.jsonl` automatically during job execution; no post-processing needed; hook fires synchronously
-- Test job that exercises the full chain — deterministic synthetic job requiring `/gsd:quick`; runs locally via Docker without production credentials
-- Stop hook GSD summary — writes one-line GSD usage count at session end
-- `--output-format stream-json` migration — enables real-time tool detection; also fixes the `.jsonl` vs `.json` extension mismatch that causes `notify-pr-complete.yml` to send an empty log field
-
-**Defer (v2+):**
-- OpenTelemetry integration — overkill for 2 Docker instances; adds infrastructure dependency
-- Compliance enforcement via Stop hook blocking — only after 20+ successful jobs confirm baseline behavior; enforce only after you understand normal
-- Real-time monitoring dashboard — requires Event Handler changes explicitly out of scope
+**Defer to v2+:**
+- Agent learning from job history (requires significant job volume to be meaningful)
+- Multi-repo single-job model (conflicts with single-repo-per-container isolation)
+- Automatic retry with corrected prompt (complex orchestration; most failures are prompt-related, not transient)
 
 ### Architecture Approach
 
-All verification and observability work lives inside the job container execution flow. The entrypoint (`entrypoint.sh`) has two natural hook points: post-prompt-build/pre-`claude` (for pre-flight verification) and post-`claude`/pre-commit (for output parsing). Both produce files written to `logs/{jobId}/` which are already committed via `git add -A` and surface in the PR diff. This design adds zero new infrastructure and preserves the existing Event Handler interface.
+The architecture strictly preserves the Event Handler / Job Container boundary. All new logic for repo context lives in the Event Handler layer (`lib/tools/repo-context.js` as a best-effort context orchestrator, or alternatively in `entrypoint.sh` for freshness). Job completion history lives in a new SQLite table (`job_outcomes`) populated at webhook receipt time. The job container reads what it needs from the already-cloned repo. No new channels, no new process boundaries, no changes to container isolation.
 
-**Major components:**
-1. Pre-Flight Verifier (shell function in entrypoint) — validates `HOME`, claude binary on PATH, GSD commands and agents directories present, API key set; writes `preflight.md`; exits non-zero on hard failures only
-2. Output Log Parser (jq pipeline or Node.js script) — reads `claude-output.json` after `claude -p` completes; extracts `tool_use` events; writes `observability.md` (human summary) and `tool-usage.json` (structured data)
-3. Test Harness (`tests/` directory) — local `docker run` script with a fixed `gsd-test-job.md` fixture; `validate-output.sh` reads `tool-usage.json` and exits non-zero if no GSD calls detected
+**Major components and v1.1 changes:**
+1. **`lib/tools/repo-context.js` (NEW)** — best-effort fetcher for CLAUDE.md + package.json; wraps each call in try-catch with 5-second `Promise.race()` timeout; returns formatted markdown or empty string on failure
+2. **`lib/tools/create-job.js` (MODIFY)** — calls `fetchRepoContext()` before writing `job.md`; appends non-empty context blocks to job description; calls `getRecentJobOriginsByThread()` for previous-job section
+3. **`lib/tools/github.js` (MODIFY)** — add `getFileContents(owner, repo, path, branch)` and `getRepoTree()` helpers
+4. **`lib/db/job-outcomes.js` (NEW)** — `saveJobOutcome()`, `getJobOutcomes()`, `getJobOutcome()` for persisting webhook payload at completion time
+5. **`lib/db/schema.js` (MODIFY)** — add `jobOutcomes` table: `job_id`, `thread_id`, `status`, `description`, `changed_files`, `pr_url`, `merge_result`, `log_summary` (truncated 2KB)
+6. **`api/index.js` GitHub webhook handler (MODIFY)** — after `createNotification()`, also call `saveJobOutcome()` (non-blocking, try-catch)
+7. **`lib/ai/tools.js` (MODIFY)** — extend `createJobTool` with optional `target_repo`; add `getRecentJobsTool` querying `job_outcomes`
+8. **`.github/workflows/run-job.yml` (MODIFY)** — add `timeout-minutes: 30`; verify no exit code masking
+9. **`.github/workflows/notify-pr-complete.yml` (MODIFY)** — harden merge state detection; handle no-PR case gracefully
+10. **`.github/workflows/notify-job-failed.yml` (MODIFY)** — add step failure categorization; fix `claude-output.json` → `claude-output.jsonl` reference
+11. **`templates/.github/workflows/` (SYNC)** — sync all three workflow templates after live changes
 
-**Build order is strictly dependency-driven:** Template sync first (so local Docker builds the right image), then pre-flight verifier (confirms environment state), then output parser (requires working `claude-output.json`), then test harness (requires both parser evidence and confirmed environment), then AGENT.md tuning (requires test harness evidence of what the agent actually does).
-
-**Known bug to fix:** `notify-pr-complete.yml` looks for `*.jsonl` but entrypoint produces `*.json`. Fix the workflow `find` pattern to match both extensions.
+**Anti-patterns confirmed by research (enforce throughout):**
+- Do NOT inject repo context into `SOUL.md` or `AGENT.md` — system prompt is static per-instance; repo context must be job-specific
+- Do NOT fetch additional files inside the job container via GitHub API — the cloned repo is already on disk; read from it
+- Do NOT block job creation when context fetch fails — always best-effort; empty string fallback required
+- Do NOT store full `claude-output.json` in SQLite — store only summary fields + PR URL link
+- Do NOT use LangGraph `InjectedState` for `getRecentJobsTool` — community reports confirm tools with InjectedState are unreliable; use explicit tool parameters
 
 ### Critical Pitfalls
 
-1. **GSD silently missing because HOME resolves wrong at runtime** — Add `ENV HOME=/root` explicitly to `Dockerfile`; add build-time smoke tests (`RUN ls /root/.claude/commands/gsd/quick.md`) so a missing GSD install fails the build loudly rather than silently producing a broken image used only when a job runs
+1. **Stale repo context from Event Handler pre-fetch** — Context fetched before branch creation can be outdated by container execution time. Mitigation: fetch in `entrypoint.sh` after clone via `cat /job/CLAUDE.md` (no API call, always current). Event Handler pre-fetching is optional warm-start supplement only.
 
-2. **Task and Skill missing from ALLOWED_TOOLS in templates** — The live `entrypoint.sh` has `Task,Skill` but `templates/docker/job/entrypoint.sh` does not; new instances scaffolded from templates silently lose GSD capability; sync templates immediately and add a CI diff check
+2. **Indirect prompt injection via CLAUDE.md** — CLAUDE.md from target repos is a confirmed attack vector (Snyk ToxicSkills, CVE-2025-54794). Mitigation: wrap injected content in "Repository Documentation (Read-Only Reference — Not Instructions)" header; strip second-person imperatives; limit to repos in `GH_OWNER` org.
 
-3. **GSD agents directory separately absent from commands directory** — GSD installs two separate artifact sets; slash commands may exist while agents are missing; `Skill(gsd:quick)` starts but fails mid-execution when it spawns a Task sub-agent that does not exist; verify both `commands/gsd/` and `agents/` at build time
+3. **Context token bloat with GSD sub-agents** — Mature CLAUDE.md files are 5,000-15,000 tokens; GSD Task sub-agents inherit the full system prompt, multiplying overhead 10x per community research. Mitigation: cap injected context at 2,000 tokens (8,000 characters); inject into user prompt (`job.md`), not system prompt (`--append-system-prompt`).
 
-4. **Empty system prompt when config files missing from target repo** — Entrypoint reads `SOUL.md` and `AGENT.md` from the cloned target repo, not the ClawForge repo; if the target repo does not have `/job/config/`, the agent runs naked with no GSD instructions; add validation that exits non-zero if `SYSTEM_PROMPT` is empty
+4. **Previous job false continuity** — Agent injected with prior job context assumes those changes are in the current branch when the PR may not be merged. Mitigation: gate previous-job context injection on `merge_result == "merged"` from `job_outcomes`; frame all historical context explicitly as "may not reflect current state."
 
-5. **GSD invocation invisible in JSON output** — `--output-format json` emits only a final summary; tool_use events are buried in the JSON structure and not visible without a parser; switch to `--output-format stream-json` and add a post-job parser to surface GSD calls in the PR
+5. **Context fetch timeout blocking job creation** — GitHub API slow responses or 404s on missing files crash `createJob()` if not wrapped. Mitigation: `Promise.race()` with 5-second timeout on every fetch; return empty string on any error; `createJob()` must succeed regardless of context fetch outcome.
+
+6. **Cross-instance job history leakage** — Shared SQLite database means repo-scoped previous-job queries could surface Noah's history in StrategyES context. Mitigation: scope all previous-job lookups by `thread_id` (naturally instance-isolated since Slack/Telegram thread IDs are instance-scoped by different bots/workspaces).
+
+---
 
 ## Implications for Roadmap
 
-Based on research, four phases in strict dependency order:
+Build order is determined by: (a) dependency — pipeline hardening validates test infrastructure so the other features can be reliably tested; (b) risk — additive changes before schema migrations; (c) validation speed — GitHub Actions fixes are verifiable in a single job run. Three phases suggested.
 
-### Phase 1: Foundation Fix and Environment Hardening
-**Rationale:** Nothing else can be validated until `claude -p` actually receives a prompt. This is the blocking bug. Environment hardening goes here because pre-flight verification is the first thing added to a working entrypoint — and template sync is prerequisite to local Docker testing of any changes.
-**Delivers:** A working `claude -p` invocation with confirmed GSD path; a pre-flight diagnostic block committed to `preflight.md` in every job; templates matching live files
-**Addresses:** Fix entrypoint prompt delivery (table stakes blocker), entrypoint diagnostic block, template drift resolution
-**Avoids:** Pitfalls 1 (HOME path), 2 (template drift), 3 (agents directory), 4 (empty system prompt)
-**Research flag:** None — all patterns are well-documented and verified against the live codebase
+### Phase 1: Pipeline Hardening
 
-### Phase 2: Output Observability
-**Rationale:** Once `claude -p` produces real output, the next gap is that GSD invocations are invisible in the JSON output. This phase makes them detectable and human-readable. Switching to `stream-json` also fixes the `.jsonl`/`.json` extension bug that causes the notification workflow to send an empty log.
-**Delivers:** `observability.md` and `tool-usage.json` committed to every job PR; `gsd-invocations.jsonl` written by PostToolUse hook during execution; notification workflow sends actual log content
-**Uses:** `--output-format stream-json`, `jq` pipeline, Claude Code hooks (PostToolUse + Stop)
-**Implements:** Output Log Parser component; PostToolUse hook in `.claude/settings.json`
-**Avoids:** Pitfall 5 (GSD invocation invisible in JSON output)
-**Research flag:** LOW — hooks PostToolUse schema for the `Skill` tool is not officially documented; the exact `tool_name` field value needs validation against a real successful run before finalizing the hook matcher
+**Rationale:** No new code paths — pure fixes to existing GitHub Actions workflows. Lowest risk, highest confidence from direct codebase inspection (gaps identified line-by-line). Reliable failure notification routing is a prerequisite for trusting test outcomes when building smart prompts and previous job context. Ship this first.
 
-### Phase 3: Test Harness and End-to-End Validation
-**Rationale:** With a working entrypoint and parseable output, a local test harness proves the full GSD chain deterministically without production credentials or Slack round-trips. This is the evidence gate before AGENT.md tuning.
-**Delivers:** `tests/test-job.sh`, `tests/fixtures/gsd-test-job.md`, `tests/validate-output.sh`; PASS/FAIL result from a local Docker run against a synthetic job; confirmed evidence of GSD invocation (or confirmed absence)
-**Addresses:** Test job feature (P1 in FEATURES.md)
-**Implements:** Test Harness component
-**Research flag:** None — standard Docker test harness pattern
+**Delivers:** End-to-end pipeline where failures notify correctly with stage categorization, conditional PR creation is verified, container timeouts prevent runner lock-up, and no-commit jobs are handled gracefully. Operators can trust that a "completed" notification means something meaningful happened.
 
-### Phase 4: AGENT.md Tuning and Instruction Hardening
-**Rationale:** This phase is conditional on Phase 3 evidence. If the test harness shows GSD is available but not being invoked, the issue is instruction-following, not discoverability. Only then does tightening AGENT.md make sense — and only with specific evidence of what the agent is doing instead of GSD.
-**Delivers:** Revised AGENT.md with imperative GSD instructions; AGENT.md instruction audit based on Phase 3 output logs; documented baseline behavior for both Archie and Epic instances
-**Avoids:** ~50% auto-invocation failure rate (STACK.md finding) by making instructions imperative rather than advisory
-**Research flag:** MEDIUM — no official Anthropic guidance on what instruction phrasing maximizes Skill tool usage; community sources agree strong imperatives help but no controlled study exists
+**Addresses (from FEATURES.md):**
+- Conditional PR creation on success only (P1)
+- Failure notification routing to originating channel (P1)
+- Meaningful-change detection for zero-diff jobs (P1)
+- Failure stage categorization — `docker_pull_failed`, `auth_failed`, `claude_failed` (P1)
+
+**Avoids (from PITFALLS.md):**
+- Pitfall 5: Conditional PR leaves zero-diff jobs ambiguous
+- Pitfall 6: Failure notification fires for wrong failure causes
+- Reduces blast radius for Pitfall 8 (solid job creation foundation before adding context fetch latency)
+
+**Files changed:** `.github/workflows/run-job.yml`, `notify-pr-complete.yml`, `notify-job-failed.yml`, `templates/.github/workflows/` (sync all three)
+
+**Research flag:** SKIP — standard GitHub Actions patterns verified against live code. No phase research needed.
+
+---
+
+### Phase 2: Smart Job Prompts
+
+**Rationale:** Purely additive changes to `createJob()` with no schema changes or new infrastructure. One new file (`lib/tools/repo-context.js`). Fastest to validate: inspect the generated `job.md` on the next test job. Security mitigations (prompt injection framing, size budget) must ship with the feature — they are not a follow-up.
+
+**Delivers:** Job containers start with CLAUDE.md and package.json context already in `job.md`, plus a structured job description template with GSD command routing hints. Agent produces better first-pass output because it knows the stack, conventions, and project structure before writing a single line of code.
+
+**Uses (from STACK.md):**
+- GitHub Contents API via existing `githubApi()` helper — no new SDK
+- `Promise.race()` with 5-second timeout for resilience
+- In-memory Map cache with 60-second TTL for rate limit protection
+- `cat /job/CLAUDE.md` in `entrypoint.sh` as primary (fresh) context source
+
+**Implements (from ARCHITECTURE.md):**
+- `lib/tools/repo-context.js` (NEW) — best-effort fetcher, 5-second timeout per file, empty-string fallback
+- `lib/tools/create-job.js` (MODIFY) — append context block to job description
+- `lib/tools/github.js` (MODIFY) — add `getFileContents()` and `getRepoTree()`
+- `lib/ai/tools.js` (MODIFY) — extend `createJobTool` with optional `target_repo` parameter
+
+**Avoids (from PITFALLS.md):**
+- Pitfall 1: Prefer entrypoint-side reads; if Event Handler pre-fetching is added, treat as supplement only
+- Pitfall 2: Cap at 2,000 tokens; inject into user prompt not system prompt
+- Pitfall 4: Wrap CLAUDE.md in "Read-Only Reference" framing; strip imperatives; whitelist to `GH_OWNER` org
+- Pitfall 7: 60-second per-repo cache before enabling smart prompts
+- Pitfall 8: `Promise.race()` timeout on all fetch calls; `createJob()` never fails due to context fetch
+
+**Research flag:** SKIP — implementation patterns fully documented in STACK.md and ARCHITECTURE.md from direct codebase inspection. Security mitigations documented from Snyk/CVE sources.
+
+---
+
+### Phase 3: Previous Job Context Injection
+
+**Rationale:** Highest coordination cost: schema migration with Drizzle codegen, new DB module, webhook handler change, and a new LangGraph agent tool. Building on a tested pipeline (Phase 1) and validated context injection (Phase 2) reduces debugging surface. The `job_outcomes` table can be informed by real webhook payloads observed in Phase 1 testing before writing the DDL.
+
+**Delivers:** Agent can reference prior job outcomes in conversation — what files changed, whether the PR was merged, what the job accomplished. New `job_outcomes` table persists completion webhook payload. New `getRecentJobsTool` lets the LangGraph agent retrieve completed job history on demand. Follow-up job descriptions include prior job summary when the previous PR was merged and the current branch was created after that merge.
+
+**Uses (from STACK.md):**
+- Drizzle ORM `desc()`/`limit()`/`where()` — same pattern as `lib/db/chats.js`
+- `drizzle-kit` migration generation via `npm run db:generate`
+- Explicit tool parameters (not InjectedState) for `getRecentJobsTool`
+
+**Implements (from ARCHITECTURE.md):**
+- `lib/db/schema.js` (MODIFY) — add `jobOutcomes` table
+- `lib/db/job-outcomes.js` (NEW) — CRUD for job completion data
+- `api/index.js` (MODIFY) — `saveJobOutcome()` called after `createNotification()`; non-blocking try-catch
+- `lib/ai/tools.js` (MODIFY) — add `getRecentJobsTool`
+- `drizzle/` — generate migration SQL
+
+**Avoids (from PITFALLS.md):**
+- Pitfall 3: Gate injection on `merge_result == "merged"`; frame all historical context explicitly
+- Pitfall 9: Scope all lookups by `thread_id`, not by repo — natural instance isolation
+- Anti-pattern: Store only summary fields + truncated `log_summary` (2KB max); full output stays in job branch
+
+**Research flag:** LOW — confirm `notify-pr-complete.yml` webhook payload field names against a real run before writing `job_outcomes` DDL. ARCHITECTURE.md documents expected fields, but live validation before migration generation avoids a schema re-do.
+
+---
 
 ### Phase Ordering Rationale
 
-- Phase 1 must come first because both recorded production runs show a broken entrypoint; all other phases assume `claude -p` produces meaningful output
-- Phase 2 before Phase 3 because the test harness needs the output parser to have something to assert against; `validate-output.sh` reads `tool-usage.json` which Phase 2 produces
-- Phase 3 before Phase 4 because AGENT.md changes should be informed by actual observed behavior, not speculation; tuning a prompt without baseline evidence is guesswork
-- Template sync is the first sub-task of Phase 1 because it prevents further divergence during development and enables local Docker testing
+- **Hardening before features:** Pipeline hardening is the safest starting point — no new code paths, just fixes. It establishes a reliable test baseline so smart prompts and previous job context can be validated trustworthily.
+- **Smart prompts before job history:** Smart prompts are purely additive with no schema changes; job history requires Drizzle migration, new module, and webhook coordination. Build on a stable foundation.
+- **Prompt injection mitigation is non-negotiable:** Security framing for CLAUDE.md injection ships with Phase 2, not as a follow-up. Research confirms active exploitation in agent systems; this is not a nice-to-have.
+- **Context fetch location is the key design decision:** Entrypoint-side reading of cloned files is fresher and simpler than Event Handler pre-fetching. This decision affects Phases 2 and 3. Confirm approach during Phase 2 scoping before writing code.
 
 ### Research Flags
 
-Phases needing deeper research during planning:
-- **Phase 2 (PostToolUse hook):** Confirm the exact `tool_name` value when `Skill` is invoked — research found it is likely `"Skill"` but this is LOW confidence and must be validated against a real successful run before writing the hook matcher; use `--verbose` during a test run to inspect raw tool call records
-- **Phase 4 (AGENT.md tuning):** Consult GSD documentation and Anthropic headless mode guidance on how to phrase imperative skill invocation instructions; the specific wording matters for ~50% auto-invocation baseline
+Phases likely needing deeper research during planning:
+- **Phase 3 (Previous Job Context):** Quick review of live `notify-pr-complete.yml` webhook payload field names before generating the Drizzle migration. Architecture doc documents expected fields, but live validation before DDL avoids a re-migration.
 
-Phases with standard patterns (can skip research-phase):
-- **Phase 1 (Foundation Fix):** All patterns verified from direct codebase inspection; entrypoint fix, pre-flight shell function, and template sync are mechanical with no ambiguous behavior
-- **Phase 3 (Test Harness):** Standard Docker test harness pattern; no novel integration required
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (Pipeline Hardening):** GitHub Actions conditional job patterns are well-documented; all gaps identified line-by-line from direct codebase inspection.
+- **Phase 2 (Smart Job Prompts):** Fully documented from codebase inspection + official GitHub API docs + Snyk/CVE security research.
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Verified via direct filesystem inspection of live GSD install, official Claude Code docs, and live Dockerfile inspection; one MEDIUM exception: `stream-json` tool_use field names need validation against a real run |
-| Features | MEDIUM | Table stakes features well-understood; PostToolUse Skill hook schema is LOW confidence — `Skill` is not listed in the hooks reference; needs runtime verification |
-| Architecture | HIGH | Derived from direct codebase analysis of live files with line-level precision; one MEDIUM item: `claude-output.json` stream structure inferred from docs patterns, not directly observed from a successful run |
-| Pitfalls | HIGH | All critical pitfalls identified from direct inspection of live vs. template file divergence; HOME path assumption verified as implicit (no `ENV HOME` directive); `.env.vps` security issue confirmed from git status |
+| Stack | HIGH | All findings from direct codebase inspection. No new dependencies. GitHub API patterns verified from official docs. Version compatibility confirmed for all existing packages. |
+| Features | HIGH (P1 features) / MEDIUM (P2/P3 features) | P1 pipeline hardening features verified against live code. Previous job context injection involves LangGraph tool patterns where InjectedState reliability is MEDIUM confidence from community sources. |
+| Architecture | HIGH | Integration points identified line-by-line from codebase. Component changes are small and additive. `job_outcomes` schema design borrows directly from `job-origins.js`. Webhook payload fields confirmed from live workflow inspection. |
+| Pitfalls | HIGH (pipeline + API) / MEDIUM (security mitigations) / LOW (prompt injection bypass specifics) | Pipeline pitfalls verified from direct code inspection. Security mitigations from Snyk/CVE (MEDIUM). Specific bypass technique details are LOW confidence single-source community research. |
 
-**Overall confidence:** HIGH for what needs to be built; MEDIUM for exact behavior of GSD invocation once the entrypoint is fixed
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Root cause of empty FULL_PROMPT:** Research identifies the most likely cause (job.md missing or empty in cloned branch at time of failing runs) but this must be reproduced and confirmed during Phase 1 before writing a fix. Do not assume the cause — inspect the failing job branches directly.
-- **PostToolUse Skill tool_name value:** The exact string that appears as `tool_name` when the `Skill` tool is invoked is not officially documented. If it is not `"Skill"`, the hook matcher will silently fail. Validate with `--verbose` during a Phase 1 test run before writing Phase 2 hook logic.
-- **GSD auto-invocation baseline:** Research establishes ~50% reliability as a community consensus figure. The actual rate for ClawForge's specific AGENT.md instructions is unknown. Phase 3 test harness will establish the actual baseline for Archie and Epic.
-- **Security gap — `.env.vps` not gitignored:** Git status shows `.env.vps` as untracked. If it contains real credentials, it is at risk of accidental commit. This is a pre-phase security fix, not part of the roadmap phases — address immediately.
+- **Context fetch location (Pitfall 1 vs. Event Handler pre-fetch):** STACK.md and PITFALLS.md are in mild conflict. Resolution: entrypoint-side reading of cloned files is the primary mechanism; Event Handler pre-fetching is optional warm-start supplement. Confirm this approach during Phase 2 scoping before writing code. Do not implement both without a clear decision.
+
+- **`job_outcomes` schema field names:** ARCHITECTURE.md documents the expected webhook payload fields, but these should be confirmed against a real `notify-pr-complete.yml` run before generating the Drizzle migration. Resolve during Phase 3 scoping by inspecting a live webhook payload.
+
+- **LangGraph `getRecentJobsTool` design:** Avoid `InjectedState` — implement as a standard tool with explicit parameters the agent calls directly. Confirm tool call pattern aligns with how `getJobStatusTool` is registered before writing the new tool.
+
+- **Token budget validation:** Research recommends capping injected context at 2,000 tokens (roughly 8,000 characters). Validate empirically on the first smart prompt test job by comparing token counts before and after injection. Adjust cap if the budget causes agent context issues.
+
+---
 
 ## Sources
 
-### Primary (HIGH confidence)
-- Direct filesystem inspection: `/Users/nwessel/.claude/commands/gsd/` and `/Users/nwessel/.claude/agents/` — GSD two-directory install structure confirmed
-- Direct codebase inspection: `/Users/nwessel/Claude Code/Business/Products/clawforge/docker/job/Dockerfile` and `entrypoint.sh` — live container configuration
-- Direct codebase inspection: `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/docker/job/entrypoint.sh` — confirmed template drift (missing Task,Skill)
-- Official Claude Code docs: `https://code.claude.com/docs/en/headless.md` — confirmed `-p` mode limitation on user-invoked slash commands
-- Official Claude Code docs: `https://code.claude.com/docs/en/cli-reference.md` — `--allowedTools`, `--output-format`, `--append-system-prompt` flags
+### Primary (HIGH confidence — direct codebase inspection)
+- `lib/tools/create-job.js` — job creation flow, injection point, GitHub API call patterns
+- `lib/tools/github.js` — `githubApi()` helper pattern to extend
+- `lib/db/schema.js`, `lib/db/job-origins.js`, `lib/db/chats.js` — existing Drizzle schema and query patterns
+- `lib/ai/tools.js` — LangGraph tool definitions, `createJobTool` schema
+- `lib/ai/agent.js` — LangGraph agent structure and tool registration
+- `api/index.js` — GitHub webhook handler flow
+- `docker/job/entrypoint.sh` — job container execution, conditional PR logic, bash patterns
+- `.github/workflows/run-job.yml`, `notify-pr-complete.yml`, `notify-job-failed.yml` — pipeline workflows
+- `.planning/codebase/CONCERNS.md`, `.planning/codebase/ARCHITECTURE.md` — existing concerns and architecture analysis
 
-### Secondary (MEDIUM confidence)
-- Official Claude Code docs: `https://code.claude.com/docs/en/hooks` — PreToolUse/PostToolUse schema confirmed; Skill-specific tool_input fields not documented
-- Claude Code Hooks Reference — PostToolUse receives `tool_name`, `tool_input`, `tool_response`; Skill not explicitly listed
-- Scott Spence blog: `https://scottspence.com/posts/claude-code-skills-dont-auto-activate` — ~50% auto-invocation success rate in practice
-- Lee Hanchung deep dive: `https://leehanchung.github.io/blogs/2025/10/26/claude-skills-deep-dive/` — Skill tool mechanical operation
-- Real job logs: `/Users/nwessel/Claude Code/Business/Products/clawforge/logs/*/claude-output.json` — both failed runs show "Input must be provided" error
+### Secondary (MEDIUM confidence — official docs)
+- GitHub REST API: `https://docs.github.com/en/rest/repos/contents` — Contents API, base64 encoding, 404 behavior, 1MB limit
+- GitHub REST API: `https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api` — 5,000 req/hour authenticated
+- Claude Code headless mode: `https://code.claude.com/docs/en/headless` — `-p` mode, `--append-system-prompt` behavior
+- Claude Code GitHub Actions: `https://code.claude.com/docs/en/github-actions` — CLAUDE.md auto-loading at container runtime
+- Anthropic context engineering: `https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents` — smallest set of high-signal tokens principle
+- LangGraph JS docs — `InjectedState` tool reliability; `getState()` / `getStateHistory()` API
+- Anthropic long-running agent harnesses: `https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents` — previous job context failure modes
+- Snyk ToxicSkills: `https://snyk.io/blog/toxicskills-malicious-ai-agent-skills-clawhub/` — indirect prompt injection via config files; 18% of agent skills fetch untrusted content
+- CVE-2025-54794: `https://cymulate.com/blog/cve-2025-547954-54795-claude-inverseprompt/` — confirmed prompt injection via formatted content
 
-### Tertiary (LOW confidence)
-- GitHub issue #11266 anthropics/claude-code — skills not auto-discovered; closed as duplicate
-- GitHub issue #218 gsd-build/get-shit-done — commands/ to skills/ migration for 2.1.x
-- `--output-format stream-json` tool_use field names (`type`, `name`, `input`) — inferred from Agent SDK docs; needs runtime validation
+### Tertiary (LOW confidence — community, single source)
+- DEV community: Claude Code subagents waste 50K tokens per turn — 10x token overhead from system prompt injection in sub-agents
+- Lasso Security: repository-based prompt injection via documentation files
+- Community reports on LangGraph InjectedState tool reliability — agent stops calling tools with hidden state injection
 
 ---
-*Research completed: 2026-02-23*
+*Research completed: 2026-02-24*
 *Ready for roadmap: yes*
