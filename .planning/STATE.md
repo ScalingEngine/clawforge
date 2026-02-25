@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Milestone v1.1 COMPLETE — all 7 phases delivered
+**Current focus:** Phase 08 (Polish, Test, Sync) — COMPLETE
 
 ## Current Position
 
-Phase: 7 of 7 (Previous Job Context) — COMPLETE
+Phase: 8 of 8 (Polish, Test, Sync) — COMPLETE
 Plan: 2 of 2 in current phase — COMPLETE
-Status: Plan 07-02 complete — agent context injection built; Milestone v1.1 complete
-Last activity: 2026-02-25 — Completed 07-02 (prior job context enrichment in createJobTool)
+Status: Plan 08-02 complete — test-entrypoint aligned with production prompt format, documentation artifacts fixed
+Last activity: 2026-02-25 — Completed 08-02 (test harness prompt sync + doc tracking)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11 (6 v1.0 + 5 v1.1)
+- Total plans completed: 13 (6 v1.0 + 5 v1.1 + 2 v1.2)
 - Average duration: 1.4 min
-- Total execution time: 0.25 hours
+- Total execution time: 0.27 hours
 
 **By Phase:**
 
@@ -34,13 +34,16 @@ Progress: [██████████] 100%
 | 5. Pipeline Hardening | 2/2 | 4 min | 2 min |
 | 6. Smart Job Prompts | 1/1 | 5 min | 5 min |
 | 7. Previous Job Context | 2/2 | 5 min | 2.5 min |
+| 8. Polish, Test, Sync | 2/2 | 2 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-01 (2 min), 05-02 (2 min), 06-01 (5 min), 07-01 (2 min), 07-02 (3 min)
+- Last 5 plans: 06-01 (5 min), 07-01 (2 min), 07-02 (3 min), 08-01 (1 min), 08-02 (1 min)
 - Trend: stable
 
 *Updated after each plan completion*
 | Phase 07-previous-job-context P02 | 3 | 1 tasks | 1 files |
+| Phase 08-polish-test-sync P01 | 1 | 2 tasks | 4 files |
+| Phase 08-polish-test-sync P02 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -67,6 +70,8 @@ Recent decisions affecting current work:
 - [Phase 07-02]: threadId extracted before createJob call so enrichment runs before job is dispatched
 - [Phase 07-02]: Non-fatal try/catch around prior context lookup — DB errors never block job creation
 - [Phase 07-02]: Prior context prepended as markdown ## Prior Job Context section with --- separator for clear LLM delineation
+- [08-01]: failure_stage surfaced in summarizeJob userMessage using existing .filter(Boolean) pattern — no system prompt changes needed
+- [08-01]: Template synced byte-for-byte via cp, not manually — eliminates drift risk
 
 ### Pending Todos
 
@@ -79,5 +84,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 07-02 (agent context injection) — Milestone v1.1 complete
+Stopped at: Completed 08-01 (failure stage notification fix + JSONL wildcard fix)
 Resume file: None
