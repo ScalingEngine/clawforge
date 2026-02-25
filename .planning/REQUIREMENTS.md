@@ -98,26 +98,26 @@
 | OBSV-03 | Phase 2 (v1.0) | Complete |
 | TEST-01 | Phase 3 (v1.0) | Complete |
 | TEST-02 | Phase 4 (v1.0) | Complete |
-| PIPE-01 | Pending | Pending |
-| PIPE-02 | Pending | Pending |
-| PIPE-03 | Pending | Pending |
-| PIPE-04 | Pending | Pending |
-| PIPE-05 | Pending | Pending |
-| PROMPT-01 | Pending | Pending |
-| PROMPT-02 | Pending | Pending |
-| PROMPT-03 | Pending | Pending |
-| PROMPT-04 | Pending | Pending |
-| HIST-01 | Pending | Pending |
-| HIST-02 | Pending | Pending |
-| HIST-03 | Pending | Pending |
-| HIST-04 | Pending | Pending |
+| PIPE-01 | Phase 5 (v1.1) | Pending |
+| PIPE-02 | Phase 5 (v1.1) | Pending |
+| PIPE-03 | Phase 5 (v1.1) | Pending |
+| PIPE-04 | Phase 5 (v1.1) | Pending |
+| PIPE-05 | Phase 5 (v1.1) | Pending |
+| PROMPT-01 | Phase 6 (v1.1) | Pending |
+| PROMPT-02 | Phase 6 (v1.1) | Pending |
+| PROMPT-03 | Phase 6 (v1.1) | Pending |
+| PROMPT-04 | Phase 6 (v1.1) | Pending |
+| HIST-01 | Phase 7 (v1.1) | Pending |
+| HIST-02 | Phase 7 (v1.1) | Pending |
+| HIST-03 | Phase 7 (v1.1) | Pending |
+| HIST-04 | Phase 7 (v1.1) | Pending |
 
 **Coverage:**
 - v1.0 requirements: 11 total — 11 complete
 - v1.1 requirements: 13 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 13
+- Mapped to phases: 13 (Phase 5: 5, Phase 6: 4, Phase 7: 4)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-24*
-*Last updated: 2026-02-24 after milestone v1.1 definition*
+*Last updated: 2026-02-24 after v1.1 roadmap creation*

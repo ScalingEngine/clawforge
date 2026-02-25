@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Milestone v1.1 — Agent Intelligence & Pipeline Hardening
+**Current focus:** Milestone v1.1 — Phase 5: Pipeline Hardening
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Milestone: v1.1 — Agent Intelligence & Pipeline Hardening
-Status: Defining requirements
-Last activity: 2026-02-24 — Milestone v1.1 started
+Phase: 5 of 7 (Pipeline Hardening)
+Plan: 0 of ? in current phase
+Status: Ready to plan
+Last activity: 2026-02-24 — Roadmap created for v1.1 (Phases 5-7)
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 6 (v1.0)
 - Average duration: 1.3 min
 - Total execution time: 0.13 hours
 
@@ -45,26 +45,11 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Pre-phase]: GSD installed globally in Docker image (simpler than repo-level, survives across repos) — pending verification
-- [Pre-phase]: Template drift accepted temporarily — live docker/ updated but templates/ not synced; Phase 1 resolves this
-- [Pre-phase]: Focus on verification before Max subscription auth switch
-- [01-01]: Use printf stdin pipe instead of positional argument for claude -p prompt delivery
-- [01-01]: Fail-fast exit 1 on missing GSD rather than running claude without GSD capabilities
-- [01-01]: Use ${HOME} not /root/ in entrypoint for future-proofing against USER directive changes
-- [01-02]: Use /root/ (not ${HOME}) in Dockerfile RUN for build-time assertion since Docker build always runs as root
-- [01-02]: Byte-for-byte copy for template sync rather than manual edits to guarantee zero drift
-- [02-01]: Use node -e merge approach in Dockerfile for settings.json to avoid overwriting GSD config
-- [02-01]: Touch empty gsd-invocations.jsonl before claude runs so file always exists in PR
-- [02-01]: Truncate hook args to 200 chars and observability table args to 80 chars for readability
-- [02-02]: Comment-only change to workflow; no functional logic modified
-- [02-02]: Byte-for-byte template sync also resolved pre-existing RUNNER_TEMP drift
-- [03-01]: Use dedicated test-entrypoint.sh bypass rather than modifying production entrypoint with test-mode flags
-- [03-01]: Bind-mount test-entrypoint.sh at runtime rather than copying into Docker image to avoid Dockerfile changes
-- [03-01]: Assert against gsd-invocations.jsonl (Phase 2 PostToolUse hook output) not tool-usage.json (never built)
-- [03-01]: Fixture AGENT.md uses imperative MUST language to maximize GSD invocation reliability
 - [04-01]: Replaced advisory "Default choice" GSD language with imperative "MUST use Skill tool" block in both production AGENT.md files
-- [04-01]: Added named "GSD Usage — Required Behavior" section to make behavioral mandate structurally distinct from command reference
 - [04-01]: Baseline documented as untested against live runs — ~50% figure is community research (LOW confidence), not measured production data
+- [v1.1 roadmap]: Phase 5 first — no new code paths, pure workflow fixes; establishes reliable test baseline before additive features
+- [v1.1 roadmap]: Phase 6 context fetch via entrypoint-side reads (cat /job/CLAUDE.md) not Event Handler pre-fetch — confirmed fresher and simpler
+- [v1.1 roadmap]: Phase 7 scopes all job_outcomes lookups by thread_id for instance isolation (not repo-scoped)
 
 ### Pending Todos
 
@@ -72,18 +57,10 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- ~~Both recorded production job runs show "Input must be provided" error~~ — RESOLVED in 01-01: fixed via stdin pipe
-- ~~PostToolUse `tool_name` value for Skill tool is not officially documented~~ — RESOLVED in 02-RESEARCH: confirmed `"Skill"` (capital S) from live transcript evidence
-- ~~`.env.vps` untracked in git with real credentials~~ — RESOLVED in 01-01: added to .gitignore
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 1 | Epic Slack tag-only replies and audio transcription | 2026-02-24 | 5e65c22 | [1-epic-slack-tag-only-replies-and-audio-tr](./quick/1-epic-slack-tag-only-replies-and-audio-tr/) |
+- [Phase 7]: Confirm `notify-pr-complete.yml` live webhook payload field names before generating Drizzle migration — inspect a real webhook payload during Phase 5/6 testing to avoid a re-migration
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed quick task 1 — Epic Slack tag-only replies and audio transcription
-Resume file: .planning/quick/1-epic-slack-tag-only-replies-and-audio-tr/1-SUMMARY.md
+Stopped at: v1.1 roadmap created — Phase 5 ready to plan
+Resume file: None
