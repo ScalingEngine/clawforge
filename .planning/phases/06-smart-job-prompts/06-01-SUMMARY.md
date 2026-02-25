@@ -113,3 +113,11 @@ None — no external service configuration required. Changes take effect on next
 ---
 *Phase: 06-smart-job-prompts*
 *Completed: 2026-02-25*
+
+## Self-Check: PASSED
+
+- FOUND: docker/job/entrypoint.sh
+- FOUND: templates/docker/job/entrypoint.sh
+- FOUND: .planning/phases/06-smart-job-prompts/06-01-SUMMARY.md
+- FOUND: commit 27d2a13 (Task 1)
+- FOUND: commit a077f72 (Task 2)
