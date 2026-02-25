@@ -15,7 +15,7 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 **Instances:** 2 (Noah/Archie — full access, StrategyES/Epic — scoped)
 
 **What works:**
-- Full job pipeline: message → Event Handler → job branch → GitHub Actions → Docker container → Claude Code CLI → PR → auto-merge → notification
+- Full job pipeline for **same-repo jobs**: message → Event Handler → job branch → GitHub Actions → Docker container → Claude Code CLI → PR → auto-merge → notification
 - Structured 5-section FULL_PROMPT (Target, Docs, Stack, Task, GSD Hint) with CLAUDE.md injection
 - Previous job context: follow-up jobs start warm with prior merged job summary
 - Failure stage detection and surfacing in notifications (docker_pull/auth/claude)
@@ -46,7 +46,11 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 
 ### Active
 
-(Next milestone — define with `/gsd:new-milestone`)
+- [ ] **REPO-01**: Job containers can clone and operate on a target repo different from clawforge
+- [ ] **REPO-02**: PRs are created on the target repo, not the clawforge repo
+- [ ] **REPO-03**: Notifications include the correct target repo PR URL
+
+(Define full scope with `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -65,6 +69,7 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 - **SQLite DB**: job_outcomes table tracks completions for prior-context injection
 - **Prompt architecture**: 5-section structured FULL_PROMPT delivered via /tmp/prompt.txt file redirect
 - **`.env.vps`**: Added to `.gitignore` (v1.0 security fix)
+- **Cross-repo jobs broken**: Job containers run inside clawforge's GitHub Actions checkout. When a job targets a different repo (e.g., NeuroStory), the entrypoint has no mechanism to clone the target repo — Claude operates on clawforge's working tree instead. The notification falsely reports success with a stale PR URL. Discovered 2026-02-25 when a NeuroStory README job reported "Merged" but no changes landed. **Same-repo jobs work correctly.** Cross-repo targeting needs its own phase.
 
 ## Constraints
 
