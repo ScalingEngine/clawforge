@@ -56,19 +56,43 @@ if [ -f "/fixtures/gsd-test-job.md" ]; then
     JOB_DESCRIPTION=$(cat /fixtures/gsd-test-job.md)
 fi
 
-# Step 11: Build full prompt (same structure as production)
+# Step 11: Build full prompt (production-aligned 5-section structure)
 FULL_PROMPT="# Your Job
 
-${JOB_DESCRIPTION}"
+## Target
+
+test-repo
+
+## Repository Documentation
+
+[not present — test fixture does not include CLAUDE.md]
+
+## Stack
+
+[not present — test fixture does not include package.json]
+
+## Task
+
+${JOB_DESCRIPTION}
+
+## GSD Hint
+
+Recommended: /gsd:quick
+Reason: test harness — always uses quick"
 
 echo "Running Claude Code with job ${JOB_ID}..."
 echo "FULL_PROMPT length: ${#FULL_PROMPT}"
 
-# Step 11: Run Claude Code with same flags as production entrypoint
-printf '%s' "${FULL_PROMPT}" | claude -p \
+# Step 11: Run Claude Code with file-redirect delivery (matches production)
+# Write prompt to temp file — piping via printf | claude | tee causes
+# "Input must be provided" errors. File redirect (< file) is reliable.
+printf '%s' "${FULL_PROMPT}" > /tmp/prompt.txt
+
+claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Task,Skill" \
+    < /tmp/prompt.txt \
     2>&1 | tee "${LOG_DIR}/claude-output.jsonl" || true
 
 # Step 12a: Generate observability.md from gsd-invocations.jsonl (same logic as production)
