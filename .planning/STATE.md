@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Milestone v1.1 — Phase 5: Pipeline Hardening
+**Current focus:** Milestone v1.1 — Phase 6: Smart Job Prompts
 
 ## Current Position
 
-Phase: 5 of 7 (Pipeline Hardening)
-Plan: 2 of 2 in current phase
-Status: Phase complete — awaiting verification
-Last activity: 2026-02-25 — Completed 05-02 (failure stage categorization, template sync)
+Phase: 6 of 7 (Smart Job Prompts)
+Plan: 1 of 1 in current phase
+Status: Phase complete — plan 06-01 executed
+Last activity: 2026-02-25 — Completed 06-01 (structured FULL_PROMPT with repo context injection)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8 (6 v1.0 + 2 v1.1)
+- Total plans completed: 9 (6 v1.0 + 3 v1.1)
 - Average duration: 1.4 min
-- Total execution time: 0.19 hours
+- Total execution time: 0.21 hours
 
 **By Phase:**
 
@@ -32,9 +32,10 @@ Progress: [██████████] 100%
 | 3. Test Harness | 1/1 | 2 min | 2 min |
 | 4. Instruction Hardening | 1/1 | 1 min | 1 min |
 | 5. Pipeline Hardening | 2/2 | 4 min | 2 min |
+| 6. Smart Job Prompts | 1/1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 (1 min), 03-01 (2 min), 04-01 (1 min), 05-01 (2 min), 05-02 (2 min)
+- Last 5 plans: 03-01 (2 min), 04-01 (1 min), 05-01 (2 min), 05-02 (2 min), 06-01 (5 min)
 - Trend: stable
 
 *Updated after each plan completion*
@@ -46,6 +47,9 @@ Progress: [██████████] 100%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [06-01]: CLAUDE.md injected at entrypoint side via cat /job/CLAUDE.md, capped at 8000 chars (~2000 tokens), with Read-Only Reference framing
+- [06-01]: GSD hint defaults to 'quick', upgrades to 'plan-phase' on keywords: implement|build|redesign|refactor|migrate|setup|integrate|develop|architect|phase|feature|epic|complex|end.to.end|full.system|multiple
+- [06-01]: Dependencies only (not devDependencies) in Stack section — keeps prompt concise for large repos
 - [05-02]: Artifact-based failure stage detection — preflight.md presence and claude-output.jsonl presence determine stage
 - [05-01]: SHA comparison (HEAD_BEFORE != HEAD_AFTER) for zero-commit PR guard — safer with shallow clones than git status check
 - [05-01]: Hardcoded 30-min timeout, not configurable — simpler for 2 instances
@@ -66,5 +70,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Phase 5 complete — all plans executed, awaiting verification
+Stopped at: Completed 06-01 (structured FULL_PROMPT with repo context injection) — Phase 6 complete
 Resume file: None

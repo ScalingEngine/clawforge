@@ -40,10 +40,10 @@
 
 ### Smart Job Prompts
 
-- [ ] **PROMPT-01**: Job entrypoint reads CLAUDE.md and package.json from cloned repo and injects content into the Claude prompt
-- [ ] **PROMPT-02**: Job description follows a structured template with Target, Context, Stack, Task, and GSD Hint sections
-- [ ] **PROMPT-03**: Injected repo context is wrapped in "Read-Only Reference" framing and capped at 2,000 tokens
-- [ ] **PROMPT-04**: Job description includes a GSD command routing hint (quick vs plan-phase) based on task keywords
+- [x] **PROMPT-01**: Job entrypoint reads CLAUDE.md and package.json from cloned repo and injects content into the Claude prompt
+- [x] **PROMPT-02**: Job description follows a structured template with Target, Context, Stack, Task, and GSD Hint sections
+- [x] **PROMPT-03**: Injected repo context is wrapped in "Read-Only Reference" framing and capped at 2,000 tokens
+- [x] **PROMPT-04**: Job description includes a GSD command routing hint (quick vs plan-phase) based on task keywords
 
 ### Previous Job Context
 
@@ -103,10 +103,10 @@
 | PIPE-03 | Phase 5 (v1.1) | Complete |
 | PIPE-04 | Phase 5 (v1.1) | Complete |
 | PIPE-05 | Phase 5 (v1.1) | Complete |
-| PROMPT-01 | Phase 6 (v1.1) | Pending |
-| PROMPT-02 | Phase 6 (v1.1) | Pending |
-| PROMPT-03 | Phase 6 (v1.1) | Pending |
-| PROMPT-04 | Phase 6 (v1.1) | Pending |
+| PROMPT-01 | Phase 6 (v1.1) | Complete |
+| PROMPT-02 | Phase 6 (v1.1) | Complete |
+| PROMPT-03 | Phase 6 (v1.1) | Complete |
+| PROMPT-04 | Phase 6 (v1.1) | Complete |
 | HIST-01 | Phase 7 (v1.1) | Pending |
 | HIST-02 | Phase 7 (v1.1) | Pending |
 | HIST-03 | Phase 7 (v1.1) | Pending |
