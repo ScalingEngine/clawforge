@@ -100,10 +100,10 @@ Plans:
   3. Injected CLAUDE.md content is wrapped in "Read-Only Reference" framing and capped at 2,000 tokens
   4. A job description includes a GSD command routing hint (quick vs plan-phase) derived from task keywords
   5. Job creation succeeds even when CLAUDE.md or package.json are missing or the GitHub API times out
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md — TBD
+- [ ] 06-01-PLAN.md — Add repo context reads (CLAUDE.md + package.json), GSD routing hint, and structured FULL_PROMPT template to entrypoint.sh, then sync template
 
 #### Phase 7: Previous Job Context
 
@@ -132,5 +132,5 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 3. Test Harness | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
-| 6. Smart Job Prompts | v1.1 | 0/? | Not started | - |
+| 6. Smart Job Prompts | v1.1 | 0/1 | Planned | - |
 | 7. Previous Job Context | v1.1 | 0/? | Not started | - |
