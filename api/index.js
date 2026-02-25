@@ -6,6 +6,7 @@ import { getTelegramAdapter, getSlackAdapter } from '../lib/channels/index.js';
 import { chat, summarizeJob, addToThread } from '../lib/ai/index.js';
 import { createNotification } from '../lib/db/notifications.js';
 import { getJobOrigin } from '../lib/db/job-origins.js';
+import { saveJobOutcome } from '../lib/db/job-outcomes.js';
 import { loadTriggers } from '../lib/triggers.js';
 import { verifyApiKey } from '../lib/db/api-keys.js';
 
@@ -273,6 +274,21 @@ async function handleGithubWebhook(request) {
     // Route notification back to originating thread
     const origin = getJobOrigin(jobId);
     if (origin) {
+      // Persist job outcome for future thread-scoped lookups
+      try {
+        saveJobOutcome({
+          jobId,
+          threadId: origin.threadId,
+          status: results.status,
+          mergeResult: results.merge_result,
+          prUrl: results.pr_url,
+          changedFiles: results.changed_files,
+          logSummary: message,  // message = await summarizeJob(results)
+        });
+      } catch (err) {
+        console.error('Failed to save job outcome:', err);
+      }
+
       // Inject into LangGraph memory so agent knows the job finished
       addToThread(origin.threadId, `[Job completed] ${message}`).catch(() => {});
 
