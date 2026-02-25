@@ -35,10 +35,21 @@ jobs:
             JOB_CONTENT=$(cat "logs/${JOB_ID}/job.md")
           fi
 
-          # Read claude-output.json if it was committed (more useful than full Actions log)
+          # Read claude-output.jsonl if it was committed (more useful than full Actions log)
           CLAUDE_OUTPUT=""
-          if [ -f "logs/${JOB_ID}/claude-output.json" ]; then
-            CLAUDE_OUTPUT=$(head -c 4000 "logs/${JOB_ID}/claude-output.json")
+          if [ -f "logs/${JOB_ID}/claude-output.jsonl" ]; then
+            CLAUDE_OUTPUT=$(head -c 4000 "logs/${JOB_ID}/claude-output.jsonl")
+          fi
+
+          # Detect failure stage from committed artifacts
+          # preflight.md exists → docker pulled, auth completed
+          # claude-output.jsonl non-empty → Claude at least started
+          FAILURE_STAGE="docker_pull"
+          if [ -f "logs/${JOB_ID}/preflight.md" ]; then
+            FAILURE_STAGE="auth"
+          fi
+          if [ -f "logs/${JOB_ID}/claude-output.jsonl" ] && [ -s "logs/${JOB_ID}/claude-output.jsonl" ]; then
+            FAILURE_STAGE="claude"
           fi
 
           # Fetch the GitHub Actions run log as fallback (truncate to last 2000 chars)
@@ -56,6 +67,7 @@ jobs:
             --arg job_id "$JOB_ID" \
             --arg branch "$BRANCH" \
             --arg status "$STATUS" \
+            --arg failure_stage "$FAILURE_STAGE" \
             --arg job "$JOB_CONTENT" \
             --arg run_url "$RUN_URL" \
             --arg log "$LOG_CONTENT" \
@@ -63,6 +75,7 @@ jobs:
               job_id: $job_id,
               branch: $branch,
               status: $status,
+              failure_stage: $failure_stage,
               job: $job,
               run_url: $run_url,
               pr_url: "",
