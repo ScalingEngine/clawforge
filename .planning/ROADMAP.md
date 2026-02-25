@@ -132,5 +132,5 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 3. Test Harness | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
-| 6. Smart Job Prompts | 1/1 | Complete   | 2026-02-25 | - |
+| 6. Smart Job Prompts | 1/1 | Complete    | 2026-02-25 | - |
 | 7. Previous Job Context | v1.1 | 0/? | Not started | - |
