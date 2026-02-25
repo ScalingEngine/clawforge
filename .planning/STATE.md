@@ -72,6 +72,9 @@ Recent decisions affecting current work:
 - [Phase 07-02]: Prior context prepended as markdown ## Prior Job Context section with --- separator for clear LLM delineation
 - [08-01]: failure_stage surfaced in summarizeJob userMessage using existing .filter(Boolean) pattern — no system prompt changes needed
 - [08-01]: Template synced byte-for-byte via cp, not manually — eliminates drift risk
+- [08-02]: Test harness uses stub values for non-test sections — structural alignment is the goal, not content fidelity
+- [08-02]: Preserved || true in test harness (vs production's || CLAUDE_EXIT=$?) — simpler where exit code not needed downstream
+- [08-02]: REQUIREMENTS.md HIST-01 was already Complete — idempotent check passed, no edit needed
 
 ### Pending Todos
 
@@ -84,5 +87,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 08-01 (failure stage notification fix + JSONL wildcard fix)
+Stopped at: Completed 08-02 (test harness prompt sync + doc tracking) — Phase 8 complete
 Resume file: None
