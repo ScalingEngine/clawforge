@@ -260,6 +260,7 @@ async function handleGithubWebhook(request) {
       pr_url: payload.pr_url || payload.run_url || '',
       run_url: payload.run_url || '',
       status: payload.status || '',
+      failure_stage: payload.failure_stage || '',
       merge_result: payload.merge_result || '',
       log: payload.log || '',
       changed_files: payload.changed_files || [],
