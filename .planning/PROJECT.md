@@ -2,32 +2,35 @@
 
 ## What This Is
 
-A multi-channel AI agent platform that connects Claude Code CLI to messaging channels (Slack, Telegram, Web Chat) with strict Docker isolation between instances. Two-layer architecture: Event Handler (LangGraph ReAct agent) dispatches jobs to ephemeral Docker containers running Claude Code CLI with GSD workflows.
+A multi-channel AI agent platform that connects Claude Code CLI to messaging channels (Slack, Telegram, Web Chat) with strict Docker isolation between instances. Two-layer architecture: Event Handler (LangGraph ReAct agent) dispatches jobs to ephemeral Docker containers running Claude Code CLI with GSD workflows. Agents receive structured prompts with repo context and prior job history, producing high-quality results autonomously.
 
 ## Core Value
 
 Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results without operator intervention.
 
-## Current Milestone: v1.1 — Agent Intelligence & Pipeline Hardening
+## Current State (after v1.1)
 
-**Goal:** Perfect Tier 2 pipeline reliability and build Tier 3 Level 1 (smart job prompts — Event Handler generates custom system prompt per job based on target repo context).
+**Shipped:** v1.0 Foundation + v1.1 Agent Intelligence & Pipeline Hardening
+**Codebase:** 5,651 LOC JavaScript (Next.js + LangGraph + Drizzle ORM)
+**Instances:** 2 (Noah/Archie — full access, StrategyES/Epic — scoped)
 
-**Target features:**
-- Pipeline reliability hardening (conditional PRs, error handling, notification accuracy)
-- Smart job prompts (repo CLAUDE.md, package.json, tech stack pulled before dispatch)
-- Previous job context injection (agent starts warm, not cold-discovering)
-- Event Handler routing improvements (quick vs plan-phase thresholds)
+**What works:**
+- Full job pipeline: message → Event Handler → job branch → GitHub Actions → Docker container → Claude Code CLI → PR → auto-merge → notification
+- Structured 5-section FULL_PROMPT (Target, Docs, Stack, Task, GSD Hint) with CLAUDE.md injection
+- Previous job context: follow-up jobs start warm with prior merged job summary
+- Failure stage detection and surfacing in notifications (docker_pull/auth/claude)
+- Zero-commit PR guard, 30-min timeout, explicit JSONL lookup
+- Test harness aligned with production prompt format
+- All templates byte-for-byte synced with live files
 
 ## Requirements
 
 ### Validated
 
-<!-- Shipped and confirmed valuable — v1.0 -->
-
 - ✓ Job containers run Claude Code CLI via `claude -p` with system prompt injection — v1.0
-- ✓ SOUL.md + AGENT.md are concatenated into system prompt at runtime — v1.0
+- ✓ SOUL.md + AGENT.md concatenated into system prompt at runtime — v1.0
 - ✓ `--allowedTools` whitelist controls available tools (includes Task, Skill) — v1.0
-- ✓ GSD is installed globally in job Docker image — v1.0
+- ✓ GSD installed globally in job Docker image — v1.0
 - ✓ Git-as-audit-trail: every job creates a branch, commits, and opens a PR — v1.0
 - ✓ Instance isolation via separate Docker networks and scoped repos — v1.0
 - ✓ Preflight diagnostics (HOME, claude path, GSD directory) — v1.0
@@ -35,12 +38,15 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 - ✓ Test harness for local Docker GSD verification — v1.0
 - ✓ Imperative AGENT.md instructions ("MUST use Skill tool") — v1.0
 - ✓ Template sync (docker/job/ ↔ templates/docker/job/) — v1.0
+- ✓ Pipeline hardening: conditional PRs, failure stage detection, timeouts — v1.1
+- ✓ Smart job prompts: CLAUDE.md + package.json injection, GSD routing hints — v1.1
+- ✓ Previous job context: thread-scoped merged job summaries — v1.1
+- ✓ Notification accuracy: failure stage in messages, explicit JSONL lookup — v1.1
+- ✓ Test-production alignment: 5-section prompt, file-redirect delivery — v1.1
 
 ### Active
 
-<!-- v1.1 scope — to be defined in REQUIREMENTS.md -->
-
-(Defined in REQUIREMENTS.md)
+(Next milestone — define with `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -49,15 +55,16 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 - Tier 3 Level 3: Self-improving agents (meta-agent reviewing success/failure) — future milestone
 - Tier 3 Level 4: Agent marketplace / composition — future milestone
 - New channel integrations — existing Slack/Telegram/Web sufficient
+- OpenTelemetry integration — hooks + committed logs sufficient for 2 instances
+- Full repo tree fetch in context — rate limits + noise; CLAUDE.md + package.json only
 
 ## Context
 
 - **Codebase mapped**: `.planning/codebase/` has 7 documents covering architecture, stack, conventions, concerns
-- **Two Dockerfiles exist**: `docker/job/Dockerfile` (live, has GSD) vs `templates/docker/job/Dockerfile` (stale, no GSD)
-- **Two entrypoints exist**: `docker/job/entrypoint.sh` (live, includes Task+Skill) vs `templates/docker/job/entrypoint.sh` (stale, missing Task+Skill)
-- **Potential silent failure**: GSD installs to `/root/.claude/` but if `HOME` isn't set or Claude Code looks elsewhere, skills won't be found — agent would just ignore the AGENT.md instructions about GSD
-- **No existing test harness**: No way to trigger a test job and verify GSD usage without manually reading raw claude-output.json
-- **API keys in `.env.vps`**: Real Anthropic keys exposed in tracked file — security concern to address
+- **Templates synced**: All docker/ and workflow files byte-for-byte identical with templates/
+- **SQLite DB**: job_outcomes table tracks completions for prior-context injection
+- **Prompt architecture**: 5-section structured FULL_PROMPT delivered via /tmp/prompt.txt file redirect
+- **`.env.vps`**: Added to `.gitignore` (v1.0 security fix)
 
 ## Constraints
 
@@ -69,10 +76,18 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| GSD installed globally in Docker image | Simpler than repo-level install, survives across job repos | -- Pending verification |
-| Template drift accepted for now | Live docker/ files were updated but templates weren't synced | -- Pending resolution |
-| Focus on verification before Max subscription | Need to prove current setup works before changing auth model | -- Pending |
-| Replaced advisory GSD language ("Default choice") with imperative ("MUST use Skill tool") in both instance AGENT.md files | Advisory language produces ~50% GSD invocation reliability per Phase 3 research. Fixture imperative language produces consistent invocations in test harness. Baseline pre-Phase-4: advisory language untested against live production runs (no live test run performed before edit). | TEST-02 satisfied |
+| GSD installed globally in Docker image | Simpler than repo-level install, survives across job repos | ✓ Working in production |
+| Template sync via `cp` not manual edit | Eliminates drift risk, byte-for-byte guarantee | ✓ Good — all templates synced |
+| Focus on verification before Max subscription | Need to prove current setup works before changing auth model | ✓ Pipeline proven reliable |
+| Imperative AGENT.md instructions | Advisory language ~50% reliability; imperative produces consistent invocations | ✓ TEST-02 satisfied |
+| SHA-based zero-commit PR guard | Safer than git status with shallow clones | ✓ Prevents empty PRs |
+| 30-min hardcoded timeout | Simpler for 2 instances, not configurable | ✓ Prevents runner lock-up |
+| Artifact-based failure stage detection | Checks presence of preflight.md/claude-output.jsonl to infer stage | ✓ Accurate categorization |
+| CLAUDE.md injection at entrypoint side | Fresher than Event Handler pre-fetch; 8k char cap prevents context bloat | ✓ Smart prompts working |
+| GSD hint defaults to 'quick' | Upgrades to 'plan-phase' on complexity keywords | ✓ Routing appropriate |
+| job_outcomes with UUID PK | Allows multiple outcomes per job; TEXT column for changedFiles | ✓ Persistence working |
+| Thread-scoped prior context lookup | Filters by thread_id for instance isolation, merge_result='merged' gate | ✓ Warm starts working |
+| failure_stage in summarizeJob userMessage | Uses existing .filter(Boolean) pattern; no system prompt change needed | ✓ Stage surfaced |
 
 ---
-*Last updated: 2026-02-24 after milestone v1.1 start*
+*Last updated: 2026-02-25 after v1.1 milestone*
