@@ -26,8 +26,8 @@ if [ "${RECORD_COUNT}" -eq 0 ]; then
     echo "--- observability.md ---"
     cat "${OUTPUT_DIR}/observability.md" 2>/dev/null || echo "(no observability.md)"
     echo ""
-    echo "--- claude-output.json (tail) ---"
-    tail -20 "${OUTPUT_DIR}/claude-output.json" 2>/dev/null || echo "(no claude-output.json)"
+    echo "--- claude-output.jsonl (tail) ---"
+    tail -20 "${OUTPUT_DIR}/claude-output.jsonl" 2>/dev/null || echo "(no claude-output.jsonl)"
     exit 1
 fi
 

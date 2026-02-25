@@ -132,7 +132,7 @@ claude -p \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "${ALLOWED_TOOLS}" \
     < /tmp/prompt.txt \
-    2>&1 | tee "${LOG_DIR}/claude-output.json" || CLAUDE_EXIT=$?
+    2>&1 | tee "${LOG_DIR}/claude-output.jsonl" || CLAUDE_EXIT=$?
 
 if [ "$CLAUDE_EXIT" -ne 0 ]; then
     echo "Claude Code exited with code ${CLAUDE_EXIT}"
@@ -166,18 +166,30 @@ fi
   fi
 } > "${OBS_FILE}"
 
-# 12. Commit all changes (even on failure — logs are useful for debugging)
+# 12. Commit all changes and conditionally create PR
+# Record HEAD before commit to detect if commit produces new changes
+HEAD_BEFORE=$(git rev-parse HEAD)
+
 git add -A
 git add -f "${LOG_DIR}" || true
 git commit -m "clawforge: job ${JOB_ID}" || true
 git push origin || true
 
-# 13. Create PR only if Claude succeeded (failed jobs trigger notify-job-failed instead)
-if [ "$CLAUDE_EXIT" -eq 0 ]; then
+# Detect if commit actually created a new SHA (handles shallow clone safely)
+HEAD_AFTER=$(git rev-parse HEAD)
+HAS_NEW_COMMIT=false
+if [ "$HEAD_BEFORE" != "$HEAD_AFTER" ]; then
+    HAS_NEW_COMMIT=true
+fi
+
+# Create PR only if Claude succeeded AND produced commits
+if [ "$CLAUDE_EXIT" -eq 0 ] && [ "$HAS_NEW_COMMIT" = "true" ]; then
     gh pr create \
         --title "clawforge: job ${JOB_ID}" \
         --body "Automated job by ClawForge" \
         --base main || true
+else
+    echo "Skipping PR: CLAUDE_EXIT=${CLAUDE_EXIT}, HAS_NEW_COMMIT=${HAS_NEW_COMMIT}"
 fi
 
 echo "Done. Job ID: ${JOB_ID} (exit: ${CLAUDE_EXIT})"

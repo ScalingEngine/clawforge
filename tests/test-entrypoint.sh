@@ -69,7 +69,7 @@ printf '%s' "${FULL_PROMPT}" | claude -p \
     --output-format json \
     --append-system-prompt "$(cat /tmp/system-prompt.md)" \
     --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Task,Skill" \
-    2>&1 | tee "${LOG_DIR}/claude-output.json" || true
+    2>&1 | tee "${LOG_DIR}/claude-output.jsonl" || true
 
 # Step 12a: Generate observability.md from gsd-invocations.jsonl (same logic as production)
 JSONL_FILE="${LOG_DIR}/gsd-invocations.jsonl"
