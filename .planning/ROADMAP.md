@@ -86,8 +86,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Zero-commit PR guard, rename output to .jsonl, add runner timeout
-- [ ] 05-02-PLAN.md — Failure stage categorization in notifications, template sync
+- [x] 05-01-PLAN.md — Zero-commit PR guard, rename output to .jsonl, add runner timeout
+- [x] 05-02-PLAN.md — Failure stage categorization in notifications, template sync
 
 #### Phase 6: Smart Job Prompts
 
@@ -131,6 +131,6 @@ Phases execute in strict dependency order: 5 → 6 → 7
 | 2. Output Observability | v1.0 | 2/2 | Complete | 2026-02-24 |
 | 3. Test Harness | v1.0 | 1/1 | Complete | 2026-02-24 |
 | 4. Instruction Hardening | v1.0 | 1/1 | Complete | 2026-02-24 |
-| 5. Pipeline Hardening | v1.1 | 0/2 | Not started | - |
+| 5. Pipeline Hardening | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 6. Smart Job Prompts | v1.1 | 0/? | Not started | - |
 | 7. Previous Job Context | v1.1 | 0/? | Not started | - |
