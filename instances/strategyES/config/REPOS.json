@@ -1,0 +1,10 @@
+{
+  "repos": [
+    {
+      "owner": "ScalingEngine",
+      "slug": "strategyes-lab",
+      "name": "StrategyES Lab",
+      "aliases": ["strategyes-lab", "strategyes", "lab"]
+    }
+  ]
+}

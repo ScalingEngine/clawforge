@@ -1,0 +1,16 @@
+{
+  "repos": [
+    {
+      "owner": "ScalingEngine",
+      "slug": "clawforge",
+      "name": "ClawForge",
+      "aliases": ["clawforge", "cf", "the bot"]
+    },
+    {
+      "owner": "ScalingEngine",
+      "slug": "neurostory",
+      "name": "NeuroStory",
+      "aliases": ["neurostory", "ns", "the app"]
+    }
+  ]
+}
