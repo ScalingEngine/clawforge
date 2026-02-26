@@ -61,6 +61,12 @@ RUN node -e "\
   fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2)); \
 "
 
+# Bake generic SOUL/AGENT defaults for cross-repo jobs (EXEC-02)
+# When /job/config/ is absent (foreign repo), entrypoint falls back to /defaults/
+RUN mkdir -p /defaults
+COPY defaults/SOUL.md /defaults/SOUL.md
+COPY defaults/AGENT.md /defaults/AGENT.md
+
 # Create workspace and config directories
 RUN mkdir -p /workspace /workspace/.claude
 
