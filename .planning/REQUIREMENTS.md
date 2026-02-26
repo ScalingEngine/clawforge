@@ -9,21 +9,21 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### Configuration & Auth
 
-- [ ] **CFG-01**: Each instance has a REPOS.json config defining allowed target repos with owner, repo slug, and aliases
-- [ ] **CFG-02**: PAT per instance is scoped with contents:write and pull_requests:write on all allowed repos (operator action documented)
+- [x] **CFG-01**: Each instance has a REPOS.json config defining allowed target repos with owner, repo slug, and aliases
+- [x] **CFG-02**: PAT per instance is scoped with contents:write and pull_requests:write on all allowed repos (operator action documented)
 
 ### Agent & Tool Schema
 
 - [ ] **TOOL-01**: create_job tool accepts optional target_repo parameter validated against allowed repos list
-- [ ] **TOOL-02**: Agent resolves target repo from natural language using allowed repos config (name/alias matching)
+- [x] **TOOL-02**: Agent resolves target repo from natural language using allowed repos config (name/alias matching)
 - [ ] **TOOL-03**: create-job.js writes target.json sidecar to clawforge job branch when target repo is specified
 
 ### Container Execution
 
 - [ ] **EXEC-01**: Entrypoint performs two-phase clone — clawforge for config/metadata, target repo (shallow) for Claude's working tree
-- [ ] **EXEC-02**: SOUL.md and AGENT.md baked into Docker image so cross-repo jobs have system prompt
+- [x] **EXEC-02**: SOUL.md and AGENT.md baked into Docker image so cross-repo jobs have system prompt
 - [ ] **EXEC-03**: Clone failure captured as explicit failure stage with clone-error.md artifact
-- [ ] **EXEC-04**: gh auth setup-git used for all clones (no PAT in clone URLs)
+- [x] **EXEC-04**: gh auth setup-git used for all clones (no PAT in clone URLs)
 
 ### PR Pipeline
 
@@ -80,13 +80,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CFG-01 | Phase 9 | Pending |
-| CFG-02 | Phase 9 | Pending |
+| CFG-01 | Phase 9 | Complete |
+| CFG-02 | Phase 9 | Complete |
 | TOOL-01 | Phase 9 | Pending |
-| TOOL-02 | Phase 9 | Pending |
+| TOOL-02 | Phase 9 | Complete |
 | TOOL-03 | Phase 9 | Pending |
-| EXEC-02 | Phase 9 | Pending |
-| EXEC-04 | Phase 9 | Pending |
+| EXEC-02 | Phase 9 | Complete |
+| EXEC-04 | Phase 9 | Complete |
 | PR-01 | Phase 10 | Pending |
 | EXEC-01 | Phase 10 | Pending |
 | EXEC-03 | Phase 10 | Pending |

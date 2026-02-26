@@ -111,7 +111,7 @@ Plans:
 | 6. Smart Job Prompts | v1.1 | 1/1 | Complete | 2026-02-25 |
 | 7. Previous Job Context | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 8. Polish & Test Sync | v1.1 | 2/2 | Complete | 2026-02-25 |
-| 9. Config + Tool Schema + Entrypoint Foundation | v1.2 | 0/? | Not started | - |
+| 9. Config + Tool Schema + Entrypoint Foundation | 2/3 | In Progress|  | - |
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | v1.2 | 0/? | Not started | - |
 | 11. Notification Pipeline + DB Schema | v1.2 | 0/? | Not started | - |
 | 12. Regression Verification | v1.2 | 0/? | Not started | - |

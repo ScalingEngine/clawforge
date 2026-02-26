@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-25)
 ## Current Position
 
 Phase: 9 of 12 (Config Layer + Tool Schema + Entrypoint Foundation)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-02-25 — v1.2 roadmap created (phases 9-12), ready to plan Phase 9
+Plan: 2 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-26 — 09-02 complete: generic /defaults/ baked into job Docker image, entrypoint fallback implemented
 
 Progress: [████████░░░░░░░░░░░░] 38% (phases 1-8 complete, 4 remaining in v1.2)
 
@@ -41,6 +41,8 @@ Progress: [████████░░░░░░░░░░░░] 38% (ph
 - Trend: stable
 
 *Updated after each plan completion*
+| Phase 09 P01 | 2 | 2 tasks | 6 files |
+| Phase 09 P02 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -54,6 +56,12 @@ Recent decisions affecting v1.2 work:
 - [v1.2 roadmap]: gh auth setup-git for all clones — PAT never interpolated into clone URLs (Actions log exposure risk)
 - [v1.2 roadmap]: Job branches always live in clawforge — on:create trigger constraint; target.json sidecar carries target metadata
 - [v1.2 roadmap]: Cross-repo PRs notify at PR creation, same-repo at merge — semantic difference must surface in UX language
+- [Phase 09]: REPOS.json placed in instances/{name}/config/ and COPY'd into container at ./config/REPOS.json — follows same path pattern as SOUL.md, AGENT.md
+- [Phase 09]: loadAllowedRepos() reads on every call with no caching — file is <1KB and changes require container rebuild anyway
+- [Phase 09]: resolveTargetRepo() returns null (not undefined) via ?? null for consistent, explicit caller behavior
+- [Phase 09]: Bake SOUL.md/AGENT.md into Docker image at /defaults/ — cross-repo working trees have no ClawForge config
+- [Phase 09]: Use variable-based fallback (SOUL_FILE/AGENT_FILE) to preserve backward compatibility — /job/config/ takes precedence when present
+- [Phase 09]: No PAT in clone URLs: gh auth setup-git handles credential resolution; GH_TOKEN only flows via env var (EXEC-04)
 
 ### Pending Todos
 
@@ -67,6 +75,6 @@ Recent decisions affecting v1.2 work:
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: v1.2 roadmap created — phases 9-12 defined and written to ROADMAP.md
+Last session: 2026-02-26
+Stopped at: Completed 09-02-PLAN.md — defaults baked into job Docker image, entrypoint fallback implemented
 Resume file: None
