@@ -30,6 +30,10 @@ GH_USER_EMAIL=$(echo "$GH_USER_JSON" | jq -r '.email // "\(.id)+\(.login)@users.
 git config --global user.name "$GH_USER_NAME"
 git config --global user.email "$GH_USER_EMAIL"
 
+# EXEC-04 compliance: gh auth setup-git (line 26) handles all git credential resolution.
+# REPO_URL is set by Actions workflow as "https://github.com/owner/repo.git" — no PAT interpolated.
+# PAT flows only via GH_TOKEN env var (from SECRETS JSON), consumed by gh CLI. Never in clone URLs.
+
 # 5. Clone the job branch
 if [ -n "$REPO_URL" ]; then
     git clone --single-branch --branch "$BRANCH" --depth 1 "$REPO_URL" /job
@@ -82,14 +86,21 @@ EOF
 
 echo "=== PREFLIGHT COMPLETE ==="
 
-# 7. Build system prompt from config files
+# 7. Build system prompt from config files (with /defaults/ fallback for cross-repo jobs)
 SYSTEM_PROMPT=""
-if [ -f "/job/config/SOUL.md" ]; then
-    SYSTEM_PROMPT=$(cat /job/config/SOUL.md)
+SOUL_FILE="/job/config/SOUL.md"
+AGENT_FILE="/job/config/AGENT.md"
+
+# Fall back to baked-in defaults when working in a foreign repo (EXEC-02)
+[ ! -f "$SOUL_FILE" ]  && SOUL_FILE="/defaults/SOUL.md"
+[ ! -f "$AGENT_FILE" ] && AGENT_FILE="/defaults/AGENT.md"
+
+if [ -f "$SOUL_FILE" ]; then
+    SYSTEM_PROMPT=$(cat "$SOUL_FILE")
     SYSTEM_PROMPT="${SYSTEM_PROMPT}\n\n"
 fi
-if [ -f "/job/config/AGENT.md" ]; then
-    SYSTEM_PROMPT="${SYSTEM_PROMPT}$(cat /job/config/AGENT.md)"
+if [ -f "$AGENT_FILE" ]; then
+    SYSTEM_PROMPT="${SYSTEM_PROMPT}$(cat "$AGENT_FILE")"
 fi
 
 # Resolve {{datetime}} variable
