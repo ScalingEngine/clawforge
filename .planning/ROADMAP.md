@@ -49,10 +49,12 @@
   3. Jobs created without a target repo produce no target.json and behave identically to v1.1
   4. SOUL.md and AGENT.md are loaded from the Docker image for all jobs — cross-repo jobs have a system prompt
   5. No PAT appears in any clone URL in entrypoint output (gh auth setup-git handles all auth)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 09-01: TBD
+- [ ] 09-01-PLAN.md — REPOS.json config, repos.js resolver, Dockerfile COPY, PAT docs
+- [ ] 09-02-PLAN.md — Job image /defaults/ SOUL/AGENT bake, entrypoint fallback, EXEC-04 audit
+- [ ] 09-03-PLAN.md — create_job target_repo schema + validation, target.json sidecar write
 
 ### Phase 10: Actions Workflow + Container Execution + Cross-Repo PR
 **Goal**: Container reads target.json, clones the target repo as its working tree, and creates a PR on the target repo with correct branch naming and default branch detection
