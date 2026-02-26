@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-25)
 ## Current Position
 
 Phase: 9 of 12 (Config Layer + Tool Schema + Entrypoint Foundation)
-Plan: 2 of 3 in current phase
-Status: In Progress
-Last activity: 2026-02-26 — 09-02 complete: generic /defaults/ baked into job Docker image, entrypoint fallback implemented
+Plan: 3 of 3 in current phase
+Status: Complete
+Last activity: 2026-02-26 — 09-03 complete: create_job tool schema extended with target_repo, target.json sidecar write implemented
 
 Progress: [████████░░░░░░░░░░░░] 38% (phases 1-8 complete, 4 remaining in v1.2)
 
@@ -43,6 +43,7 @@ Progress: [████████░░░░░░░░░░░░] 38% (ph
 *Updated after each plan completion*
 | Phase 09 P01 | 2 | 2 tasks | 6 files |
 | Phase 09 P02 | 5 | 2 tasks | 4 files |
+| Phase 09 P03 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 09]: Bake SOUL.md/AGENT.md into Docker image at /defaults/ — cross-repo working trees have no ClawForge config
 - [Phase 09]: Use variable-based fallback (SOUL_FILE/AGENT_FILE) to preserve backward compatibility — /job/config/ takes precedence when present
 - [Phase 09]: No PAT in clone URLs: gh auth setup-git handles credential resolution; GH_TOKEN only flows via env var (EXEC-04)
+- [Phase 09]: target_repo validation at tool handler layer — agent layer validates, job layer trusts; error response includes available repo names for self-correction
+- [Phase 09]: target.json pre-computes repo_url as full clone URL — entrypoint can use directly without string interpolation
 
 ### Pending Todos
 
@@ -76,5 +79,5 @@ Recent decisions affecting v1.2 work:
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 09-02-PLAN.md — defaults baked into job Docker image, entrypoint fallback implemented
+Stopped at: Completed 09-03-PLAN.md — create_job tool schema extended with target_repo, target.json sidecar write implemented
 Resume file: None

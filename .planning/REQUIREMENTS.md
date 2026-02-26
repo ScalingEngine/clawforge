@@ -14,9 +14,9 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### Agent & Tool Schema
 
-- [ ] **TOOL-01**: create_job tool accepts optional target_repo parameter validated against allowed repos list
+- [x] **TOOL-01**: create_job tool accepts optional target_repo parameter validated against allowed repos list
 - [x] **TOOL-02**: Agent resolves target repo from natural language using allowed repos config (name/alias matching)
-- [ ] **TOOL-03**: create-job.js writes target.json sidecar to clawforge job branch when target repo is specified
+- [x] **TOOL-03**: create-job.js writes target.json sidecar to clawforge job branch when target repo is specified
 
 ### Container Execution
 
@@ -82,9 +82,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CFG-01 | Phase 9 | Complete |
 | CFG-02 | Phase 9 | Complete |
-| TOOL-01 | Phase 9 | Pending |
+| TOOL-01 | Phase 9 | Complete |
 | TOOL-02 | Phase 9 | Complete |
-| TOOL-03 | Phase 9 | Pending |
+| TOOL-03 | Phase 9 | Complete |
 | EXEC-02 | Phase 9 | Complete |
 | EXEC-04 | Phase 9 | Complete |
 | PR-01 | Phase 10 | Pending |
