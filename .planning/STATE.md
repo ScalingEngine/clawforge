@@ -5,16 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 Cross-Repo Job Targeting
 
 ## Current Position
 
-Phase: 8 of 8 (Polish, Test, Sync) — COMPLETE
-Plan: 2 of 2 in current phase — COMPLETE
-Status: Plan 08-02 complete — test-entrypoint aligned with production prompt format, documentation artifacts fixed
-Last activity: 2026-02-25 — Completed 08-02 (test harness prompt sync + doc tracking)
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-25 — Milestone v1.2 started
 
 ## Performance Metrics
 

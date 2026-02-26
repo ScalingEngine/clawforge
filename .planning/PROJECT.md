@@ -8,6 +8,19 @@ A multi-channel AI agent platform that connects Claude Code CLI to messaging cha
 
 Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results without operator intervention.
 
+## Current Milestone: v1.2 Cross-Repo Job Targeting
+
+**Goal:** Enable job containers to clone and operate on any allowed target repo, not just clawforge.
+
+**Target features:**
+- Allowed repos configuration per instance
+- Agent repo selection from allowed list based on user message context
+- Container clones target repo at runtime (entrypoint modification)
+- PRs created on target repo
+- Notifications with correct target repo PR URLs
+- Single PAT per instance scoped to allowed repos
+- No regression on same-repo (clawforge) jobs
+
 ## Current State (after v1.1)
 
 **Shipped:** v1.0 Foundation + v1.1 Agent Intelligence & Pipeline Hardening
@@ -46,11 +59,13 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 
 ### Active
 
-- [ ] **REPO-01**: Job containers can clone and operate on a target repo different from clawforge
-- [ ] **REPO-02**: PRs are created on the target repo, not the clawforge repo
-- [ ] **REPO-03**: Notifications include the correct target repo PR URL
-
-(Define full scope with `/gsd:new-milestone`)
+- [ ] Allowed repos configuration per instance with repo-to-owner mapping
+- [ ] Agent selects target repo from allowed list based on user message
+- [ ] Job containers clone and operate on the target repo
+- [ ] PRs created on the target repo, not clawforge
+- [ ] Notifications include correct target repo PR URLs
+- [ ] Single PAT per instance for target repo access
+- [ ] Same-repo (clawforge) jobs continue working without regression
 
 ### Out of Scope
 
@@ -95,4 +110,4 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 | failure_stage in summarizeJob userMessage | Uses existing .filter(Boolean) pattern; no system prompt change needed | ✓ Stage surfaced |
 
 ---
-*Last updated: 2026-02-25 after v1.1 milestone*
+*Last updated: 2026-02-25 after v1.2 milestone start*
