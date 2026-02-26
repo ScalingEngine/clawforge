@@ -80,32 +80,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CFG-01 | — | Pending |
-| CFG-02 | — | Pending |
-| TOOL-01 | — | Pending |
-| TOOL-02 | — | Pending |
-| TOOL-03 | — | Pending |
-| EXEC-01 | — | Pending |
-| EXEC-02 | — | Pending |
-| EXEC-03 | — | Pending |
-| EXEC-04 | — | Pending |
-| PR-01 | — | Pending |
-| PR-02 | — | Pending |
-| PR-03 | — | Pending |
-| PR-04 | — | Pending |
-| PR-05 | — | Pending |
-| NOTIF-01 | — | Pending |
-| NOTIF-02 | — | Pending |
-| NOTIF-03 | — | Pending |
-| NOTIF-04 | — | Pending |
-| REG-01 | — | Pending |
-| REG-02 | — | Pending |
+| CFG-01 | Phase 9 | Pending |
+| CFG-02 | Phase 9 | Pending |
+| TOOL-01 | Phase 9 | Pending |
+| TOOL-02 | Phase 9 | Pending |
+| TOOL-03 | Phase 9 | Pending |
+| EXEC-02 | Phase 9 | Pending |
+| EXEC-04 | Phase 9 | Pending |
+| PR-01 | Phase 10 | Pending |
+| EXEC-01 | Phase 10 | Pending |
+| EXEC-03 | Phase 10 | Pending |
+| PR-02 | Phase 10 | Pending |
+| PR-03 | Phase 10 | Pending |
+| PR-04 | Phase 10 | Pending |
+| PR-05 | Phase 10 | Pending |
+| NOTIF-01 | Phase 11 | Pending |
+| NOTIF-02 | Phase 11 | Pending |
+| NOTIF-03 | Phase 11 | Pending |
+| NOTIF-04 | Phase 11 | Pending |
+| REG-01 | Phase 12 | Pending |
+| REG-02 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 20 total
-- Mapped to phases: 0
-- Unmapped: 20 ⚠️
+- Mapped to phases: 20
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-25*
-*Last updated: 2026-02-25 after initial definition*
+*Last updated: 2026-02-25 — traceability populated after roadmap creation*

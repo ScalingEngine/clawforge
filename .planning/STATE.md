@@ -5,19 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** v1.2 Cross-Repo Job Targeting
+**Current focus:** Phase 9 — Config Layer + Tool Schema + Entrypoint Foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-25 — Milestone v1.2 started
+Phase: 9 of 12 (Config Layer + Tool Schema + Entrypoint Foundation)
+Plan: 0 of ? in current phase
+Status: Ready to plan
+Last activity: 2026-02-25 — v1.2 roadmap created (phases 9-12), ready to plan Phase 9
+
+Progress: [████████░░░░░░░░░░░░] 38% (phases 1-8 complete, 4 remaining in v1.2)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13 (6 v1.0 + 5 v1.1 + 2 v1.2)
+- Total plans completed: 13
 - Average duration: 1.4 min
 - Total execution time: 0.27 hours
 
@@ -39,40 +41,19 @@ Last activity: 2026-02-25 — Milestone v1.2 started
 - Trend: stable
 
 *Updated after each plan completion*
-| Phase 07-previous-job-context P02 | 3 | 1 tasks | 1 files |
-| Phase 08-polish-test-sync P01 | 1 | 2 tasks | 4 files |
-| Phase 08-polish-test-sync P02 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+Recent decisions affecting v1.2 work:
 
-- [07-01]: jobOutcomes uses UUID PK (not jobId) to allow multiple outcomes per job
-- [07-01]: changedFiles stored as JSON string in TEXT column — no JOIN needed
-- [07-01]: saveJobOutcome wrapped in try/catch in webhook handler — DB failures never block notifications
-- [07-01]: getLastMergedJobOutcome filters mergeResult='merged' at query level (HIST-03), scoped by threadId (HIST-04)
-- [06-01]: CLAUDE.md injected at entrypoint side via cat /job/CLAUDE.md, capped at 8000 chars (~2000 tokens), with Read-Only Reference framing
-- [06-01]: GSD hint defaults to 'quick', upgrades to 'plan-phase' on keywords: implement|build|redesign|refactor|migrate|setup|integrate|develop|architect|phase|feature|epic|complex|end.to.end|full.system|multiple
-- [06-01]: Dependencies only (not devDependencies) in Stack section — keeps prompt concise for large repos
-- [05-02]: Artifact-based failure stage detection — preflight.md presence and claude-output.jsonl presence determine stage
-- [05-01]: SHA comparison (HEAD_BEFORE != HEAD_AFTER) for zero-commit PR guard — safer with shallow clones than git status check
-- [05-01]: Hardcoded 30-min timeout, not configurable — simpler for 2 instances
-- [04-01]: Replaced advisory "Default choice" GSD language with imperative "MUST use Skill tool" block in both production AGENT.md files
-- [04-01]: Baseline documented as untested against live runs — ~50% figure is community research (LOW confidence), not measured production data
-- [v1.1 roadmap]: Phase 5 first — no new code paths, pure workflow fixes; establishes reliable test baseline before additive features
-- [v1.1 roadmap]: Phase 6 context fetch via entrypoint-side reads (cat /job/CLAUDE.md) not Event Handler pre-fetch — confirmed fresher and simpler
-- [v1.1 roadmap]: Phase 7 scopes all job_outcomes lookups by thread_id for instance isolation (not repo-scoped)
-- [Phase 07-02]: threadId extracted before createJob call so enrichment runs before job is dispatched
-- [Phase 07-02]: Non-fatal try/catch around prior context lookup — DB errors never block job creation
-- [Phase 07-02]: Prior context prepended as markdown ## Prior Job Context section with --- separator for clear LLM delineation
-- [08-01]: failure_stage surfaced in summarizeJob userMessage using existing .filter(Boolean) pattern — no system prompt changes needed
-- [08-01]: Template synced byte-for-byte via cp, not manually — eliminates drift risk
-- [08-02]: Test harness uses stub values for non-test sections — structural alignment is the goal, not content fidelity
-- [08-02]: Preserved || true in test harness (vs production's || CLAUDE_EXIT=$?) — simpler where exit code not needed downstream
-- [08-02]: REQUIREMENTS.md HIST-01 was already Complete — idempotent check passed, no edit needed
+- [v1.2 roadmap]: Cross-repo notification fires from entrypoint directly — notify-pr-complete.yml cannot observe events in foreign repos
+- [v1.2 roadmap]: SOUL.md/AGENT.md baked into Docker image (/defaults/) — cross-repo working tree has no ClawForge config
+- [v1.2 roadmap]: gh auth setup-git for all clones — PAT never interpolated into clone URLs (Actions log exposure risk)
+- [v1.2 roadmap]: Job branches always live in clawforge — on:create trigger constraint; target.json sidecar carries target metadata
+- [v1.2 roadmap]: Cross-repo PRs notify at PR creation, same-repo at merge — semantic difference must surface in UX language
 
 ### Pending Todos
 
@@ -80,10 +61,12 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- [Phase 7 - RESOLVED]: Confirm `notify-pr-complete.yml` live webhook payload field names — payload fields confirmed via existing handleGithubWebhook code (job_id, status, merge_result, pr_url, changed_files)
+- [Phase 9]: StrategyES instance REPOS.json content needs operator confirmation before Phase 9 ships
+- [Phase 9]: Fine-grained PAT scope update is an operator action — must be documented in .env.example before any cross-repo job runs
+- [Phase 11]: Cross-repo merge semantics UX language needs validation ("PR open for review" vs "merged")
 
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 08-02 (test harness prompt sync + doc tracking) — Phase 8 complete
+Stopped at: v1.2 roadmap created — phases 9-12 defined and written to ROADMAP.md
 Resume file: None
