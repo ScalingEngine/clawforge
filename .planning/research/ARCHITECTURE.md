@@ -1,588 +1,768 @@
 # Architecture Research
 
-**Domain:** Smart job prompts, pipeline hardening, and previous job context injection for ClawForge v1.1
-**Researched:** 2026-02-24
-**Confidence:** HIGH (based on direct codebase inspection) / MEDIUM (for context injection patterns)
+**Domain:** Cross-repo job targeting integration with ClawForge v1.2
+**Researched:** 2026-02-25
+**Confidence:** HIGH (direct codebase inspection at line level)
 
 ---
 
-## System Overview — Existing Architecture (v1.0)
+## The Core Problem: What Currently Breaks
 
-Understanding the full pipeline is required before identifying what changes for v1.1.
+When a user asks the agent to work on a different repo (e.g., NeuroStory), the current pipeline fails silently:
+
+```
+createJob() creates job/* branch in clawforge repo
+run-job.yml triggers inside clawforge Actions context
+entrypoint.sh:
+  REPO_URL = "https://github.com/ScalingEngine/clawforge.git"  ← hardcoded by Actions
+  git clone $REPO_URL  ← clones clawforge, NOT NeuroStory
+  claude -p  ← operates on clawforge's working tree
+  gh pr create  ← creates PR on clawforge  ← WRONG REPO
+
+notify-pr-complete.yml:
+  PR_URL = clawforge PR URL  ← reports stale/wrong PR
+  User sees "merged" — nothing changed in NeuroStory
+```
+
+The bug was discovered 2026-02-25: a NeuroStory README job reported "Merged" but no changes appeared in NeuroStory. Same-repo (clawforge) jobs work correctly throughout.
+
+---
+
+## System Overview (v1.1 Baseline)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Event Handler (Next.js)                       │
 │                                                                  │
-│  Channel Adapter Layer (Slack/Telegram/Web)                      │
-│       ↓ normalized { threadId, text, attachments }               │
+│  Channel Adapter (Slack/Telegram/Web)                            │
+│       ↓ { threadId, text, attachments }                          │
 │  LangGraph ReAct Agent (lib/ai/agent.js)                         │
-│       ↓ tool invocation                                          │
+│       ↓ create_job tool call                                      │
 │  createJobTool (lib/ai/tools.js)                                 │
-│       ↓ calls                                                    │
-│  createJob() (lib/tools/create-job.js)                           │
-│       ↓ GitHub API                                               │
-│  Push job/* branch with logs/{jobId}/job.md                      │
+│       ↓                                                          │
+│  createJob(description) (lib/tools/create-job.js)               │
+│       ↓ GitHub API (GH_OWNER/GH_REPO env)                        │
+│  Push job/{UUID} branch → logs/{UUID}/job.md                     │
 │                                                                  │
 └─────────────────────────────┬────────────────────────────────────┘
                               │ job/* branch push event
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                    GitHub Actions (run-job.yml)                   │
-│  docker run [job image] with SECRETS, LLM_SECRETS, REPO_URL,    │
-│             BRANCH, LLM_MODEL, LLM_PROVIDER                     │
+│  REPO_URL = github.server_url + github.repository + ".git"       │
+│            ← ALWAYS clawforge, no target repo concept            │
+│  docker run [job image]                                          │
+│    -e REPO_URL=$REPO_URL                                         │
+│    -e BRANCH=job/{UUID}                                          │
 └─────────────────────────────┬────────────────────────────────────┘
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                     Job Container (Docker)                        │
+│                     Job Container (entrypoint.sh)                 │
 │                                                                  │
-│  entrypoint.sh:                                                  │
-│  1. Export SECRETS and LLM_SECRETS as env vars                   │
-│  2. Git auth + clone job/* branch                                │
-│  3. [PREFLIGHT] verify HOME, claude, GSD paths                   │
-│  4. Build SYSTEM_PROMPT from /job/config/SOUL.md + AGENT.md      │
-│  5. Read JOB_DESCRIPTION from /job/logs/{jobId}/job.md           │
-│  6. Run: claude -p --append-system-prompt ... < /tmp/prompt.txt  │
-│  7. PostToolUse hook writes gsd-invocations.jsonl                │
-│  8. Generate observability.md from gsd-invocations.jsonl         │
-│  9. git add -A && git commit && git push                         │
-│  10. gh pr create (only if Claude exit 0)                        │
+│  git clone $REPO_URL  ← always clawforge                         │
+│  read /job/logs/{UUID}/job.md                                    │
+│  build FULL_PROMPT (Target, Docs, Stack, Task, GSD Hint)         │
+│  claude -p < /tmp/prompt.txt                                     │
+│  git commit && gh pr create  ← PR on clawforge                  │
 │                                                                  │
 └─────────────────────────────┬────────────────────────────────────┘
-                              │ PR created
+                              │ PR created on clawforge
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                    Post-Job Workflows                             │
-│                                                                  │
-│  auto-merge.yml — path-restricted auto-merge                     │
-│       ↓ on merge complete                                        │
-│  notify-pr-complete.yml — reads logs/{jobId}/*.jsonl, POSTs      │
-│       to /api/github/webhook                                     │
-│       OR                                                         │
-│  notify-job-failed.yml — on run-job.yml failure, POSTs to       │
-│       /api/github/webhook                                        │
-│                                                                  │
-│       ↓ webhook received                                         │
-│                                                                  │
-│  Event Handler: summarizeJob() + createNotification()            │
-│       ↓                                                          │
-│  Channel adapter sends completion message to originating thread   │
+│  notify-pr-complete.yml                                          │
+│    PR_URL = clawforge PR URL (always wrong for cross-repo jobs)  │
+│    → /api/github/webhook → summarizeJob → addToThread            │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## v1.1 Feature Architecture
+## v1.2 Architecture: Cross-Repo Targeting
 
-Three independent features, each with distinct integration points. They can be built in parallel after scoping, but have internal dependencies described below.
-
----
-
-### Feature 1: Smart Job Prompts (Repo Context Injection)
-
-**What it does:** Before creating a job, the Event Handler fetches context from the target repo (CLAUDE.md, package.json, directory structure) and injects it into the job description sent to the job container.
-
-**Where it lives:** Event Handler — specifically `lib/tools/create-job.js` and `lib/ai/tools.js`.
-
-**Data flow (current vs. new):**
+The solution threads `target_repo` (owner/repo) through every layer of the pipeline. Each layer has a distinct integration point. Below is the complete data flow and the exact changes needed at each layer.
 
 ```
-CURRENT:
-  Agent calls createJobTool(job_description)
-       ↓
-  createJob(jobDescription) writes job_description to logs/{jobId}/job.md
-       ↓
-  Job container reads job.md, builds SYSTEM_PROMPT from SOUL.md + AGENT.md
-  Agent starts COLD — no knowledge of target repo
-
-NEW:
-  Agent calls createJobTool(job_description, target_repo?)
-       ↓
-  createJob() fetches context from target repo via GitHub API:
-    - CLAUDE.md (architecture/conventions)
-    - package.json (stack, deps, scripts)
-    - Directory listing (top-level structure)
-       ↓
-  createJob() enriches job.md:
-    # Your Job
-    {job_description}
-
-    # Repo Context
-    ## CLAUDE.md
-    {claude_md_content}
-
-    ## package.json
-    {package_json_content}
-
-    ## Directory Structure
-    {top_level_ls}
-       ↓
-  Job container reads enriched job.md — agent starts WARM
-```
-
-**Component changes:**
-
-| Component | Change Type | What Changes |
-|-----------|-------------|--------------|
-| `lib/tools/create-job.js` | MODIFY | Add `fetchRepoContext(owner, repo, branch)` that calls GitHub contents API. Append context block to `jobDescription` before writing `job.md`. |
-| `lib/ai/tools.js` | MODIFY | Extend `createJobTool` schema with optional `target_repo` parameter (owner/repo string). Pass to `createJob()`. Fallback to `GH_OWNER/GH_REPO` env if not provided. |
-| `lib/tools/github.js` | MODIFY | Add `getFileContents(owner, repo, path, branch)` helper. Add `getRepoStructure(owner, repo)` returning top-level tree. |
-
-**New component:**
-
-```
-lib/tools/repo-context.js     NEW — context fetcher
-  fetchRepoContext(owner, repo, branch?)
-    → getFileContents(CLAUDE.md)   [silent fail if missing]
-    → getFileContents(package.json) [silent fail if missing]
-    → getRepoTree()                [top-level only, not recursive]
-    → returns formatted markdown block
-```
-
-**Key design decisions:**
-
-- Repo context fetching is **best-effort**: if CLAUDE.md is absent, skip it. Never block job creation because context fetch fails.
-- Context is injected into `job.md`, not into `SYSTEM_PROMPT`. The system prompt (`SOUL.md + AGENT.md`) is instance configuration. Job-specific context belongs in the job description.
-- GitHub API rate limit concern: 3 API calls per job creation (CLAUDE.md, package.json, tree). At 5,000 req/hour limit, this is safe for <1,600 jobs/hour — well above current volume.
-- Context is capped. CLAUDE.md and package.json should be truncated at 8KB each to prevent `job.md` from exceeding reasonable size.
-
-**Integration boundary:**
-
-```
-lib/ai/tools.js (createJobTool)
-    → lib/tools/create-job.js (createJob)
-        → lib/tools/repo-context.js (fetchRepoContext)   [NEW]
-            → lib/tools/github.js (getFileContents, getRepoTree)  [EXTEND]
-```
-
-No changes to entrypoint.sh, GitHub Actions workflows, or the job container. The enrichment is transparent from the container's perspective — it just reads a richer `job.md`.
-
----
-
-### Feature 2: Pipeline Hardening
-
-**What it does:** Prevents silent failures and incorrect notifications in the GitHub Actions pipeline. Targets: conditional PR creation (already done in v1.0), error propagation from failed Claude runs, notification accuracy (merge state detection).
-
-**Current state (post v1.0):** The pipeline already has:
-- Conditional `gh pr create` — only runs if `CLAUDE_EXIT -eq 0`
-- `notify-job-failed.yml` — fires on `run-job.yml` failure
-- `notify-pr-complete.yml` — fires after `auto-merge.yml` completes
-
-**Known gaps to harden:**
-
-```
-Gap 1: Claude non-zero exit propagates but container exits 0
-  - entrypoint.sh line 137: logs CLAUDE_EXIT but always exits with CLAUDE_EXIT (line 184)
-  - This is CORRECT — container exits with Claude's exit code
-  - Verify: run-job.yml must not suppress non-zero exit; currently has no error masking
-  - Action: Audit run-job.yml step exit codes; confirm container failure reaches workflow failure
-
-Gap 2: notify-pr-complete.yml merge state detection is brittle
-  - Uses `gh pr view --json mergedAt` to check merge state
-  - If auto-merge hasn't completed when workflow fires, mergedAt is null
-  - The workflow fires on auto-merge.yml completion, not on PR merge directly
-  - Action: Use workflow_run.conclusion to determine merge outcome, not just mergedAt poll
-
-Gap 3: notify-job-failed.yml branch checkout on failed jobs
-  - Failed jobs may not have committed logs (entrypoint commits with `|| true`)
-  - `git commit ... || true` means job.md may be absent from branch if commit failed
-  - Action: Ensure job.md is always readable from branch before container runs (it is — job.md is written to the branch before run-job.yml fires, not by the container)
-
-Gap 4: No timeout on job containers
-  - Containers run until GitHub Actions 6-hour timeout if Claude hangs
-  - Relevant for pipeline hardening: a hung container blocks the runner
-  - Action: Add `timeout-minutes` to run-job.yml job definition
-```
-
-**Component changes:**
-
-| Component | Change Type | What Changes |
-|-----------|-------------|--------------|
-| `.github/workflows/run-job.yml` | MODIFY | Add `timeout-minutes: 30` to job definition. Verify no step-level exit code masking. |
-| `.github/workflows/notify-pr-complete.yml` | MODIFY | Improve merge state detection logic. Add error handling for missing PR. |
-| `.github/workflows/notify-job-failed.yml` | MODIFY | Verify checkout ref fallback when container hasn't committed. |
-| `templates/.github/workflows/` | MODIFY | Sync all three workflow templates after live changes. |
-
-**No Event Handler changes required.** Pipeline hardening is GitHub Actions-layer only.
-
----
-
-### Feature 3: Previous Job Context Injection
-
-**What it does:** When a user asks Archie/Epic to do something related to a previous job, the agent has access to what that job produced — what files changed, what the PR contained, what succeeded or failed. Agent starts conversations with warm context rather than rediscovering state.
-
-**Where it lives:** Event Handler — specifically `lib/ai/index.js`, `lib/db/`, and potentially `lib/ai/tools.js`.
-
-**Two distinct sub-problems:**
-
-**Sub-problem A: Same-thread job continuity (already partially solved)**
-
-The LangGraph SQLite checkpointer (`SqliteSaver`) persists the full conversation history per `thread_id`. When a job completes, `addToThread(threadId, message)` injects the job result back into the conversation. The agent already has the job result in its message history for follow-up questions in the same thread.
-
-Gap: The injected message from `notify-pr-complete.yml` contains `changed_files`, `commit_message`, `pr_url`, and `log` (GSD invocations). This is sufficient for same-thread continuity. **No architectural change needed here** — v1.0 already handles this.
-
-**Sub-problem B: Cross-thread or cross-session job recall (new capability)**
-
-When a user starts a new conversation and references a previous job by description ("remember that refactor you did last week"), the agent has no context. The `jobOrigins` table links `jobId` to `threadId` but contains no job outcome data.
-
-**New data flow:**
-
-```
-Job completes → notify-pr-complete.yml → /api/github/webhook
-       ↓
-Event Handler receives webhook payload:
-  { job_id, status, job (description), changed_files, commit_message, pr_url, log }
-       ↓
-Currently: createNotification() saves for UI display
-NEW: Also persist job outcome to job_outcomes table (or extend jobOrigins)
-       ↓
-Agent tools: new getRecentJobsTool or enhanced getJobStatusTool
-  → queries job_outcomes for completed jobs
-  → returns: job_id, description, changed_files, pr_url, outcome_summary
-       ↓
-Agent uses this in conversation: "The last job I ran on repo X changed Y files..."
-```
-
-**Schema addition:**
-
-```sql
--- New table: job_outcomes
-CREATE TABLE job_outcomes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id TEXT UNIQUE NOT NULL,
-  thread_id TEXT,
-  platform TEXT,
-  status TEXT,          -- completed, failed, open
-  description TEXT,     -- original job.md content
-  changed_files TEXT,   -- JSON array
-  commit_message TEXT,
-  pr_url TEXT,
-  merge_result TEXT,
-  log_summary TEXT,     -- truncated gsd-invocations content
-  created_at INTEGER DEFAULT (unixepoch())
-);
-```
-
-**Component changes:**
-
-| Component | Change Type | What Changes |
-|-----------|-------------|--------------|
-| `lib/db/schema.js` | MODIFY | Add `jobOutcomes` table definition. |
-| `lib/db/job-outcomes.js` | NEW | `saveJobOutcome(payload)`, `getJobOutcomes(limit)`, `getJobOutcome(jobId)` |
-| `api/index.js` (GitHub webhook handler) | MODIFY | After `createNotification()`, also call `saveJobOutcome()` with webhook payload. |
-| `lib/ai/tools.js` | MODIFY | Add `getRecentJobsTool` that queries `jobOutcomes` for the last N completed jobs. |
-| `drizzle/` | GENERATE | Run `npm run db:generate` to create migration SQL. |
-
-**Important scope clarification:** This feature is about the Event Handler having job history for conversational context. It does NOT require changes to the job container, entrypoint, or GitHub Actions workflows. The webhook payload already contains all needed data — it just isn't being persisted for agent retrieval.
-
----
-
-## Component Responsibilities (v1.1 State)
-
-| Component | Responsibility | v1.0 State | v1.1 Changes |
-|-----------|---------------|------------|--------------|
-| `lib/tools/repo-context.js` | Fetch CLAUDE.md, package.json, tree from target repo | Does not exist | NEW |
-| `lib/tools/create-job.js` | Create job branch, write enriched job.md | Creates bare job.md | MODIFY: inject repo context |
-| `lib/ai/tools.js` | LangGraph tool definitions | 3 tools | MODIFY: extend createJobTool, add getRecentJobsTool |
-| `lib/tools/github.js` | GitHub REST API client | Read-focused | MODIFY: add getFileContents, getRepoTree |
-| `lib/db/job-outcomes.js` | Persist job completion data | Does not exist | NEW |
-| `lib/db/schema.js` | Drizzle table definitions | 6 tables | MODIFY: add jobOutcomes |
-| `api/index.js` (GH webhook) | Handle job completion webhook | Notifies + summarizes | MODIFY: also saveJobOutcome |
-| `.github/workflows/run-job.yml` | Trigger job container | Functional | MODIFY: add timeout |
-| `.github/workflows/notify-*.yml` | Notify Event Handler | Functional | MODIFY: harden edge cases |
-
----
-
-## Data Flow: Smart Job Creation (v1.1)
-
-```
-User: "Refactor the auth module in strategyes-lab"
-       ↓
-LangGraph Agent (EVENT_HANDLER.md context)
-       ↓ tool call: create_job
-createJobTool({ job_description: "Refactor auth module", target_repo: "owner/strategyes-lab" })
-       ↓
-createJob(jobDescription, { owner, repo })
-       ↓ parallel GitHub API calls
-fetchRepoContext(owner, repo)
-  ├── GET /repos/{owner}/{repo}/contents/CLAUDE.md   → architecture docs
-  ├── GET /repos/{owner}/{repo}/contents/package.json → stack/scripts
-  └── GET /repos/{owner}/{repo}/git/trees/HEAD?recursive=false → top-level tree
-       ↓
-Enrich job.md:
-  "# Your Job\nRefactor auth module\n\n# Repo Context\n## CLAUDE.md\n..."
-       ↓
-Push job/* branch with enriched job.md
-       ↓
-GitHub Actions triggers run-job.yml
-       ↓
-Job container reads enriched job.md → claude -p starts WARM with repo context
+┌──────────────────────────────────────────────────────────────────┐
+│                     Event Handler (Next.js)                       │
+│                                                                  │
+│  Channel Adapter (unchanged)                                     │
+│       ↓ { threadId, text, attachments }                          │
+│  LangGraph ReAct Agent (unchanged)                               │
+│       ↓ create_job tool call with NEW target_repo parameter      │
+│  createJobTool (lib/ai/tools.js) — MODIFIED                      │
+│    • schema adds optional target_repo: "owner/repo"              │
+│    • reads ALLOWED_REPOS from config/REPOS.json per instance     │
+│    • validates target_repo against allowlist (or defaults to     │
+│      GH_OWNER/GH_REPO if omitted)                                │
+│       ↓                                                          │
+│  createJob(description, { targetOwner, targetRepo })             │
+│  (lib/tools/create-job.js) — MODIFIED                            │
+│    • still creates job/* branch in clawforge (home repo)         │
+│    • writes TARGET_REPO to logs/{UUID}/job.md metadata           │
+│       ↓ GitHub API (always uses GH_OWNER/GH_REPO for branch)    │
+│  Push job/{UUID} branch → logs/{UUID}/job.md                     │
+│  (job.md now includes target repo metadata)                      │
+│                                                                  │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ job/* branch push in clawforge
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    GitHub Actions (run-job.yml)                   │
+│                                                                  │
+│  MODIFIED: read TARGET_REPO from job.md before docker run        │
+│  Pass TARGET_REPO_URL as a new env var to the container          │
+│                                                                  │
+│  docker run [job image]                                          │
+│    -e REPO_URL="clawforge.git"    ← unchanged (for job/* clone) │
+│    -e TARGET_REPO_URL="neurostory.git"  ← NEW                   │
+│    -e BRANCH=job/{UUID}                                          │
+│    -e SECRETS (includes PAT scoped to target repo)              │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     Job Container (entrypoint.sh)                 │
+│                                                                  │
+│  MODIFIED two-phase clone:                                       │
+│    Phase 1: git clone $REPO_URL /job-meta                        │
+│             (clawforge branch — reads job.md, config/)           │
+│    Phase 2: git clone $TARGET_REPO_URL /job                      │
+│             (target repo — where Claude does actual work)        │
+│                                                                  │
+│  config/ still read from /job-meta/config/ (SOUL.md, AGENT.md)  │
+│  job.md still read from /job-meta/logs/{UUID}/job.md             │
+│  CLAUDE.md read from /job/CLAUDE.md (target repo)                │
+│  package.json read from /job/package.json (target repo)          │
+│  Claude works in /job (target repo)                              │
+│                                                                  │
+│  gh pr create on TARGET_REPO_URL (not clawforge)                 │
+│  git commit and push target repo branch                          │
+│                                                                  │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ PR created on TARGET REPO
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    Post-Job Workflows                             │
+│                                                                  │
+│  notify-pr-complete.yml — MODIFIED                               │
+│    PR_URL = target repo PR URL (correct)                         │
+│    Reads job.md from /job-meta to extract target repo slug        │
+│    Payload includes target_repo field                            │
+│    → /api/github/webhook                                         │
+│                                                                  │
+│  Event Handler (api/index.js) — MINOR CHANGE                     │
+│    saveJobOutcome adds target_repo field                         │
+│    summarizeJob displays correct target repo in message          │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Data Flow: Previous Job Context (v1.1)
+## Integration Points: New vs Modified Components
+
+### 1. Allowed Repos Config — WHERE IT LIVES
+
+**New file:** `config/REPOS.json` (per-instance override in `instances/{name}/config/REPOS.json`)
+
+```json
+{
+  "allowed": [
+    {
+      "owner": "ScalingEngine",
+      "repo": "clawforge",
+      "description": "ClawForge platform (default)"
+    },
+    {
+      "owner": "ScalingEngine",
+      "repo": "neurostory",
+      "description": "NeuroStory application"
+    }
+  ]
+}
+```
+
+**Why this location:** The existing pattern for instance config is `instances/{name}/config/` (SOUL.md, AGENT.md, EVENT_HANDLER.md are all there). REPOS.json follows the same convention. The base `config/REPOS.json` is the fallback (clawforge only). Instances override it by placing their own REPOS.json in `instances/{name}/config/REPOS.json`.
+
+**Read by:** `lib/tools/create-job.js` (or a new `lib/tools/allowed-repos.js`) at job creation time. Load once and validate target_repo against the list.
+
+**PAT per instance:** The existing `GH_TOKEN` env var must be scoped (via GitHub fine-grained PAT) to all repos in the instance's allowed list. No new env var needed — just requires the PAT to have write access to target repos. Documented in `.env.example`.
+
+---
+
+### 2. createJobTool — MODIFIED (`lib/ai/tools.js`)
+
+Current schema:
+```javascript
+z.object({
+  job_description: z.string()
+})
+```
+
+New schema:
+```javascript
+z.object({
+  job_description: z.string(),
+  target_repo: z.string().optional()
+    .describe('Target repository slug (owner/repo). Omit for default (clawforge). Must be in allowed list.')
+})
+```
+
+**Agent behavior:** The agent reads the allowed repos list (available in EVENT_HANDLER.md context) and selects the appropriate repo based on user intent. No tool call needed to list repos — the list is injected into the agent system context via EVENT_HANDLER.md.
+
+**Validation:** `createJobTool` resolves `target_repo` against `REPOS.json`. If not in list, return error string to agent ("Repository not in allowed list"). Agent handles this gracefully by telling the user.
+
+**Default:** If `target_repo` is omitted, use `GH_OWNER`/`GH_REPO` from env (existing behavior — no regression on clawforge jobs).
+
+---
+
+### 3. createJob — MODIFIED (`lib/tools/create-job.js`)
+
+**Current behavior:** Creates `job/{UUID}` branch in `GH_OWNER/GH_REPO`. Writes job description to `logs/{UUID}/job.md`.
+
+**New behavior:** Still creates the branch in the home repo (clawforge). But `job.md` now includes target repo metadata as a structured header:
+
+```markdown
+<!-- target_repo: ScalingEngine/neurostory -->
+<!-- target_repo_url: https://github.com/ScalingEngine/neurostory.git -->
+
+[rest of job description]
+```
+
+HTML comments are machine-readable by `run-job.yml` (via grep) but invisible in rendered GitHub markdown. No format change to the job description visible to Claude.
+
+**Alternative approach:** Write a separate `logs/{UUID}/target.json` file alongside `job.md`:
+```json
+{ "owner": "ScalingEngine", "repo": "neurostory" }
+```
+
+This is cleaner for machine consumption and avoids comment-parsing fragility. The workflow reads `target.json` if present; absent = same-repo job (backward compatible).
+
+**Recommendation:** Use `target.json` — clearer separation of machine metadata from human-readable job description. No risk of comment-stripping or markdown rendering edge cases.
+
+**No change to branch naming.** `job/{UUID}` branch always lives in the home repo (clawforge). The job branch is a dispatch mechanism — it triggers the Actions workflow. The work happens in the target repo.
+
+---
+
+### 4. run-job.yml — MODIFIED
+
+**Current:** Passes `REPO_URL = github.server_url + github.repository + ".git"` as a hardcoded reference to the triggering repo (clawforge).
+
+**New:** Add a step before `docker run` to read `target.json` from the checked-out branch:
+
+```yaml
+- name: Resolve target repo
+  id: target
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    # Checkout the job branch first (need target.json)
+    git clone --single-branch --branch "${{ github.ref_name }}" \
+      "${{ github.server_url }}/${{ github.repository }}.git" /tmp/job-meta
+
+    JOB_ID="${{ github.ref_name }#job/}"
+
+    # Read target.json if present (cross-repo job)
+    TARGET_JSON="/tmp/job-meta/logs/${JOB_ID}/target.json"
+    if [ -f "$TARGET_JSON" ]; then
+      TARGET_OWNER=$(jq -r '.owner' "$TARGET_JSON")
+      TARGET_REPO=$(jq -r '.repo' "$TARGET_JSON")
+      TARGET_REPO_URL="${{ github.server_url }}/${TARGET_OWNER}/${TARGET_REPO}.git"
+    else
+      # Same-repo job (backward compatible)
+      TARGET_REPO_URL="${{ github.server_url }}/${{ github.repository }}.git"
+    fi
+
+    echo "target_repo_url=$TARGET_REPO_URL" >> "$GITHUB_OUTPUT"
+
+- name: Run ClawForge Agent
+  env:
+    REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+    TARGET_REPO_URL: ${{ steps.target.outputs.target_repo_url }}
+    BRANCH: ${{ github.ref_name }}
+    ...
+  run: |
+    docker run --rm \
+      -e REPO_URL \
+      -e TARGET_REPO_URL \
+      -e BRANCH \
+      ...
+```
+
+**Key constraint:** `run-job.yml` runs inside the **clawforge** Actions context. GitHub token (`${{ github.token }}`) has write access to clawforge but NOT to external repos. This is why the PAT (in `SECRETS` JSON, passed as `GH_TOKEN` to the container) must have cross-repo write access. The workflow itself only reads from the job branch to extract `target.json` — no writes to external repos from the Actions workflow level.
+
+---
+
+### 5. entrypoint.sh — MODIFIED
+
+This is the most significant change. The entrypoint currently does a single clone into `/job`. With cross-repo targeting, it needs a two-location model:
+
+```bash
+# Current: single clone
+git clone --single-branch --branch "$BRANCH" "$REPO_URL" /job
+cd /job
+
+# New: two-phase clone
+# Phase 1: Clone home repo (job branch) for metadata and config
+git clone --single-branch --branch "$BRANCH" "$REPO_URL" /job-meta
+
+# Phase 2: Clone target repo (default branch) for actual work
+if [ -n "$TARGET_REPO_URL" ] && [ "$TARGET_REPO_URL" != "$REPO_URL" ]; then
+  IS_CROSS_REPO=true
+  git clone --depth 1 "$TARGET_REPO_URL" /job
+else
+  # Same-repo job: /job is the same as /job-meta
+  IS_CROSS_REPO=false
+  ln -s /job-meta /job  # symlink avoids duplicate clone
+fi
+
+cd /job
+```
+
+**Config reads after two-phase clone:**
+
+| Item | Location (current) | Location (v1.2) |
+|------|-------------------|-----------------|
+| `SOUL.md` | `/job/config/SOUL.md` | `/job-meta/config/SOUL.md` |
+| `AGENT.md` | `/job/config/AGENT.md` | `/job-meta/config/AGENT.md` |
+| `job.md` | `/job/logs/{UUID}/job.md` | `/job-meta/logs/{UUID}/job.md` |
+| `CLAUDE.md` | `/job/CLAUDE.md` | `/job/CLAUDE.md` (target repo) |
+| `package.json` | `/job/package.json` | `/job/package.json` (target repo) |
+| Work dir | `/job` | `/job` (target repo) |
+| Log dir | `/job/logs/{UUID}/` | `/job-meta/logs/{UUID}/` |
+
+**Git operations after work:**
+
+```bash
+# For cross-repo: push to target repo (create PR there)
+# For same-repo: push to clawforge (existing behavior)
+
+if [ "$IS_CROSS_REPO" = "true" ]; then
+  cd /job  # target repo
+  git add -A
+  git commit -m "clawforge: job ${JOB_ID}"
+  git push origin HEAD:job/${JOB_ID}  # push job branch to target repo
+  gh pr create \
+    --repo "${TARGET_OWNER}/${TARGET_REPO}" \
+    --title "clawforge: job ${JOB_ID}" \
+    --body "Automated job by ClawForge" \
+    --base main
+
+  # Also commit logs to home repo (job-meta)
+  cd /job-meta
+  git add -A logs/
+  git commit -m "clawforge: logs ${JOB_ID}"
+  git push origin
+else
+  # Existing same-repo flow (unchanged)
+  cd /job
+  git add -A
+  git commit -m "clawforge: job ${JOB_ID}"
+  git push origin
+  gh pr create ...
+fi
+```
+
+**The log commit to home repo:** Observability artifacts (preflight.md, claude-output.jsonl, gsd-invocations.jsonl, observability.md) live in `/job-meta/logs/{UUID}/`. These are committed to the clawforge job branch and pushed. The post-job workflows (`notify-pr-complete.yml`, `notify-job-failed.yml`) check out the clawforge job branch and read logs from there — this behavior is unchanged.
+
+---
+
+### 6. PR Creation on Target Repo
+
+**How:** `gh pr create --repo "owner/repo"` accepts an explicit `--repo` flag. The `gh` CLI in the job container authenticates via `gh auth setup-git` using the `GH_TOKEN`. If the token has write access to the target repo, `gh pr create --repo owner/neurostory` works.
+
+**Branch on target repo:** Claude's changes need to be on a named branch in the target repo. The container creates `job/{UUID}` branch in the target repo via `git push origin HEAD:job/{UUID}`. The PR is then opened from `job/{UUID}` → `main` in the target repo.
+
+**Auto-merge on target repo:** The existing `auto-merge.yml` workflow lives in clawforge and only acts on clawforge PRs. It will NOT auto-merge PRs in external repos. This is by design — PRs in external repos (NeuroStory, etc.) go through that repo's normal review process. The ClawForge instance owner can optionally add `auto-merge.yml` to target repos if they want auto-merge there too.
+
+**Notification pipeline receives target repo PR URL:** `notify-pr-complete.yml` fires when `auto-merge.yml` completes. For cross-repo jobs, `auto-merge.yml` won't run (no PR in clawforge). This creates a notification gap — see Anti-Patterns section below.
+
+---
+
+### 7. Notification Pipeline — MODIFIED
+
+**The notification gap for cross-repo jobs:** `notify-pr-complete.yml` triggers on `auto-merge.yml` completion. `auto-merge.yml` only fires on PRs against clawforge `main`. For cross-repo jobs, the PR is in the target repo. `auto-merge.yml` never fires. So `notify-pr-complete.yml` never fires.
+
+**Solution:** Add a notification step directly to `run-job.yml` for cross-repo jobs. After `gh pr create` on the target repo succeeds, immediately POST to the Event Handler:
+
+```bash
+# In entrypoint.sh, after cross-repo PR creation:
+if [ "$IS_CROSS_REPO" = "true" ] && [ -n "$APP_URL" ]; then
+  TARGET_PR_URL=$(gh pr view --repo "${TARGET_OWNER}/${TARGET_REPO}" \
+    job/${JOB_ID} --json url -q '.url' 2>/dev/null || echo "")
+
+  jq -n \
+    --arg job_id "$JOB_ID" \
+    --arg branch "job/$JOB_ID" \
+    --arg status "completed" \
+    --arg pr_url "$TARGET_PR_URL" \
+    --arg target_repo "${TARGET_OWNER}/${TARGET_REPO}" \
+    ... \
+  | curl -s -X POST "$APP_URL/api/github/webhook" \
+    -H "X-GitHub-Webhook-Secret-Token: $WEBHOOK_SECRET" \
+    -d @-
+fi
+```
+
+**Alternative (cleaner):** Notify from `run-job.yml` itself (not entrypoint), after the docker run step completes. `run-job.yml` has access to `${{ vars.APP_URL }}` and `${{ secrets.GH_WEBHOOK_SECRET }}` directly — no need to pass them into the container. The entrypoint's exit code determines success/failure.
+
+**Recommendation:** Notify from `run-job.yml` post-docker-run step. Keeps notification logic in the workflow layer (consistent with how same-repo notifications work) rather than entrypoint (container layer). Requires `run-job.yml` to read `target.json` to know the target repo, which it already does in the resolve step.
+
+**`saveJobOutcome` and `job_outcomes` schema:** Add `target_repo TEXT` column (nullable). Same-repo jobs leave it null. Cross-repo jobs populate it. The field appears in notification messages so the user knows which repo was modified.
+
+---
+
+### 8. AGENT.md Update — EVENT HANDLER.MD
+
+**What the agent needs to know:**
+1. That cross-repo targeting exists
+2. What repos are in the allowed list (so it can select intelligently)
+3. To pass `target_repo` to `create_job` when the user's intent is clear
+
+**How to surface this:** The `instances/{name}/config/EVENT_HANDLER.md` is the agent's system instructions. Add a section:
+
+```markdown
+## Allowed Target Repositories
+
+When creating jobs, you can target any of these repositories:
+- ScalingEngine/clawforge — ClawForge platform (default)
+- ScalingEngine/neurostory — NeuroStory application
+
+Detect target from user intent. If the user says "in NeuroStory" or "on the NeuroStory repo", pass `target_repo: "ScalingEngine/neurostory"` to create_job. If the user doesn't specify a repo or says "here", omit target_repo (defaults to clawforge).
+```
+
+This is injected into the system prompt at runtime — no tool call required to list repos.
+
+---
+
+## Data Flow: Cross-Repo Job End-to-End
 
 ```
-Job completes → /api/github/webhook receives:
-  { job_id, status: "completed", job: "Refactor auth module",
-    changed_files: ["src/auth.js", "tests/auth.test.js"],
-    commit_message: "feat: extract auth middleware",
-    pr_url: "https://github.com/...", merge_result: "merged" }
+User: "Update the README in NeuroStory to add installation instructions"
        ↓
-Event Handler:
-  summarizeJob() → LLM summary
-  createNotification() → save for UI
-  saveJobOutcome() → persist to job_outcomes table  [NEW]
+LangGraph Agent — reads allowed repos from EVENT_HANDLER.md context
+  detects "NeuroStory" → target_repo = "ScalingEngine/neurostory"
+       ↓ create_job tool call
+createJobTool({
+  job_description: "Update README with installation instructions",
+  target_repo: "ScalingEngine/neurostory"
+})
        ↓
-Later conversation (new thread):
-User: "What did you change in strategyes-lab last week?"
+  Validates against REPOS.json → allowed
+  Calls createJob(description, { owner: "ScalingEngine", repo: "neurostory" })
        ↓
-Agent: getRecentJobsTool({ limit: 5 })
-  → query job_outcomes ORDER BY created_at DESC
-  → returns: [{ job_id, description, changed_files, pr_url, ... }]
+createJob():
+  1. Creates job/{UUID} branch in ScalingEngine/clawforge (home repo)
+  2. Writes logs/{UUID}/job.md (job description)
+  3. Writes logs/{UUID}/target.json { owner, repo }
+       ↓ branch push triggers run-job.yml
+run-job.yml:
+  1. Checks out clawforge job branch
+  2. Reads logs/{UUID}/target.json → TARGET_REPO_URL = neurostory.git
+  3. docker run with REPO_URL=clawforge.git + TARGET_REPO_URL=neurostory.git
        ↓
-Agent answers with actual PR data, not hallucination
+entrypoint.sh:
+  1. git clone clawforge job branch → /job-meta (metadata, config)
+  2. git clone neurostory main → /job (work target)
+  3. SYSTEM_PROMPT from /job-meta/config/SOUL.md + AGENT.md
+  4. JOB_DESCRIPTION from /job-meta/logs/{UUID}/job.md
+  5. CLAUDE.md injected from /job/CLAUDE.md (neurostory's docs)
+  6. package.json stack from /job/package.json (neurostory's deps)
+  7. claude -p operates in /job (neurostory)
+  8. git commit + push job/{UUID} branch to neurostory
+  9. gh pr create --repo ScalingEngine/neurostory
+  10. POST notification to APP_URL/api/github/webhook
+       ↓
+Event Handler /api/github/webhook:
+  summarizeJob({ target_repo: "ScalingEngine/neurostory", pr_url: "neurostory PR URL", ... })
+  saveJobOutcome({ ..., target_repo: "ScalingEngine/neurostory" })
+  addToThread(origin.threadId, "[Job completed] README updated in NeuroStory: [PR URL]")
+  Slack/Telegram notification with correct target repo PR URL
 ```
 
 ---
 
-## Recommended Project Structure (additions/changes for v1.1)
+## Component Responsibilities (v1.2 State)
+
+| Component | Current Responsibility | v1.2 Change | Change Type |
+|-----------|----------------------|-------------|-------------|
+| `config/REPOS.json` | Does not exist | Allowed repos list (base/fallback) | NEW |
+| `instances/{name}/config/REPOS.json` | Does not exist | Per-instance allowed repos override | NEW |
+| `lib/tools/create-job.js` | Create branch + write job.md | Also write target.json | MODIFY |
+| `lib/ai/tools.js` | createJobTool with job_description | Add target_repo param, validate against allowlist | MODIFY |
+| `templates/.github/workflows/run-job.yml` | docker run with REPO_URL | Add resolve-target step, pass TARGET_REPO_URL | MODIFY |
+| `templates/docker/job/entrypoint.sh` | Single clone to /job | Two-phase clone (/job-meta + /job), cross-repo PR | MODIFY |
+| `templates/.github/workflows/notify-pr-complete.yml` | Fires after auto-merge.yml | Same-repo only — no change to trigger | VERIFY |
+| `lib/db/schema.js` | jobOutcomes table | Add target_repo column | MODIFY |
+| `lib/db/job-outcomes.js` | saveJobOutcome / getLastMergedJobOutcome | Accept and persist target_repo | MODIFY |
+| `api/index.js` (GH webhook) | summarizeJob + notify | Extract target_repo from payload | MODIFY |
+| `instances/{name}/config/EVENT_HANDLER.md` | Agent instructions | Add allowed repos list section | MODIFY |
+| `instances/{name}/.env.example` | Env var documentation | Document PAT scope requirement | MODIFY |
+
+---
+
+## Recommended Project Structure (v1.2 additions)
 
 ```
+config/
+└── REPOS.json                    NEW — base allowed repos (clawforge only)
+
+instances/
+├── noah/
+│   └── config/
+│       ├── REPOS.json            NEW — Noah's allowed repos (clawforge + all personal repos)
+│       └── EVENT_HANDLER.md      MODIFY — add allowed repos section
+└── strategyES/
+    └── config/
+        ├── REPOS.json            NEW — StrategyES allowed repos (strategyes-lab only)
+        └── EVENT_HANDLER.md      MODIFY — add allowed repos section
+
 lib/
 ├── tools/
-│   ├── create-job.js         MODIFY — inject repo context into job.md
-│   ├── github.js             MODIFY — add getFileContents, getRepoTree
-│   └── repo-context.js       NEW — fetchRepoContext() orchestrator
+│   └── create-job.js             MODIFY — write target.json alongside job.md
 ├── ai/
-│   └── tools.js              MODIFY — extend createJobTool + add getRecentJobsTool
-├── db/
-│   ├── schema.js             MODIFY — add jobOutcomes table
-│   └── job-outcomes.js       NEW — CRUD for job completion data
+│   └── tools.js                  MODIFY — target_repo param + validation
+└── db/
+    ├── schema.js                  MODIFY — add target_repo column to jobOutcomes
+    └── job-outcomes.js            MODIFY — accept target_repo in saveJobOutcome
 
-drizzle/
-└── [new migration].sql       GENERATE — via npm run db:generate
-
-.github/workflows/
-├── run-job.yml               MODIFY — add timeout-minutes
-├── notify-pr-complete.yml    MODIFY — harden merge detection
-└── notify-job-failed.yml     VERIFY — audit for edge cases
-
-templates/.github/workflows/
-├── run-job.yml               SYNC — after live changes
-├── notify-pr-complete.yml    SYNC — after live changes
-└── notify-job-failed.yml     SYNC — after live changes
+templates/
+├── docker/job/
+│   └── entrypoint.sh             MODIFY — two-phase clone, cross-repo PR, cross-repo notify
+└── .github/workflows/
+    └── run-job.yml               MODIFY — resolve-target step, TARGET_REPO_URL env
 ```
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Best-Effort Context Enrichment
+### Pattern 1: Sidecar Metadata File for Cross-Repo Signal
 
-**What:** Wrap all repo context fetches in try-catch. Return partial context if some fetches fail. Never block job creation because a file doesn't exist in the target repo.
+**What:** Write a separate `target.json` file alongside `job.md` in the clawforge job branch when a cross-repo job is created. Keep the job description clean and machine-readable metadata separate.
 
-**When to use:** Any time the Event Handler fetches external data as enrichment (not as a requirement).
+**When to use:** Any time the entrypoint or workflows need structured data about the job that is not part of the human-readable task description.
 
-**Trade-offs:** Jobs may occasionally start with less context than expected if GitHub API returns a 404 for CLAUDE.md. This is acceptable — the job still runs. The alternative (blocking job creation) is worse.
+**Trade-offs:** Adds one extra file per cross-repo job in the clawforge repo. Same-repo jobs have no `target.json` (absence = same-repo). Backward compatible by design.
 
 ```javascript
-// repo-context.js pattern
-async function fetchRepoContext(owner, repo, branch = 'main') {
-  const parts = [];
-
-  try {
-    const claudeMd = await getFileContents(owner, repo, 'CLAUDE.md', branch);
-    if (claudeMd) parts.push(`## CLAUDE.md\n${claudeMd.slice(0, 8000)}`);
-  } catch { /* absent — skip */ }
-
-  try {
-    const pkg = await getFileContents(owner, repo, 'package.json', branch);
-    if (pkg) parts.push(`## package.json\n${pkg.slice(0, 4000)}`);
-  } catch { /* absent — skip */ }
-
-  if (parts.length === 0) return '';
-  return `\n\n# Repo Context\n\n${parts.join('\n\n')}`;
+// lib/tools/create-job.js — addition
+if (targetOwner && targetRepo) {
+  await githubApi(`/repos/${GH_OWNER}/${GH_REPO}/contents/logs/${jobId}/target.json`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      message: `job: ${jobId} (target: ${targetOwner}/${targetRepo})`,
+      content: Buffer.from(JSON.stringify({ owner: targetOwner, repo: targetRepo })).toString('base64'),
+      branch: branch,
+    }),
+  });
 }
 ```
 
 ---
 
-### Pattern 2: Webhook Payload as Source of Truth for Job History
+### Pattern 2: Symlink for Same-Repo Backward Compatibility
 
-**What:** The `notify-pr-complete.yml` webhook payload already contains all job outcome data needed for conversational context: `changed_files`, `commit_message`, `pr_url`, `log`, `merge_result`. Persist this payload verbatim to the database rather than re-fetching from GitHub later.
+**What:** When `TARGET_REPO_URL` equals `REPO_URL` (same-repo job), create `/job` as a symlink to `/job-meta` instead of a second clone. This preserves the existing directory layout without code duplication.
 
-**When to use:** Any time job completion data needs to be queryable from the Event Handler.
+**When to use:** Same-repo jobs must continue working without any code path change in the sections that reference `/job`.
 
-**Trade-offs:** The payload is captured once at completion. If a PR is later reverted or edited, the persisted data is stale. This is acceptable — the record represents what the job produced, not the current state of main.
+**Trade-offs:** Symlinks work on Linux containers. Slightly confusing directory layout. But avoids a full clone of clawforge twice.
 
-```javascript
-// api/index.js — GitHub webhook handler (addition)
-async function handleJobComplete(payload) {
-  const { job_id, status, job, changed_files, commit_message, pr_url, log, merge_result } = payload;
-
-  // existing
-  await summarizeJob(payload);
-  await createNotification({ job_id, ... });
-
-  // new — persist for agent retrieval
-  try {
-    await saveJobOutcome({
-      jobId: job_id,
-      threadId: getJobOrigin(job_id)?.threadId,
-      status,
-      description: job,
-      changedFiles: JSON.stringify(changed_files),
-      commitMessage: commit_message,
-      prUrl: pr_url,
-      mergeResult: merge_result,
-      logSummary: log?.slice(0, 2000),
-    });
-  } catch (err) {
-    console.error('[github-webhook] Failed to save job outcome:', err);
-    // non-blocking
-  }
-}
+```bash
+if [ "$IS_CROSS_REPO" = "false" ]; then
+  ln -s /job-meta /job
+fi
+cd /job  # works for both cases
 ```
 
 ---
 
-### Pattern 3: Extend Existing Tools Before Adding New Ones
+### Pattern 3: Notify at Container Exit for Cross-Repo Jobs
 
-**What:** For `getRecentJobsTool` — check whether `getJobStatusTool` can be extended to include historical jobs before creating a parallel tool. `getJobStatusTool` currently queries `run-job.yml` workflow runs from GitHub, which is the wrong data source for historical context (GitHub Actions only keeps runs for ~90 days; job outcomes table is permanent).
+**What:** For cross-repo jobs, the post-job notification cannot come from `notify-pr-complete.yml` (that workflow only fires when `auto-merge.yml` completes on clawforge PRs). Instead, emit the notification directly from `run-job.yml` as a post-docker-run step.
 
-**When to use:** This is a case where a new tool IS warranted, because the data source is different (SQLite vs GitHub API) and the query intent is different (historical context vs live status).
+**When to use:** Any job that creates a PR on an external repo (no auto-merge in clawforge context).
 
-**Trade-offs:** Two tools instead of one, but clean separation of concerns. `get_job_status` = live running jobs (GitHub API). `get_recent_jobs` = completed job history (SQLite). Agent understands the distinction.
+**Trade-offs:** Notification arrives before the PR may be reviewed or merged (it fires at PR creation, not PR merge). This is acceptable — the notification tells the user "a PR was created" not "it was merged". For same-repo jobs, the existing notify-pr-complete.yml flow fires on merge. Semantic difference is documented in the agent's response.
+
+```yaml
+# run-job.yml — post-docker step for cross-repo
+- name: Notify cross-repo job completion
+  if: steps.target.outputs.is_cross_repo == 'true'
+  env:
+    GH_TOKEN: ${{ github.token }}
+    APP_URL: ${{ vars.APP_URL }}
+    GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+    JOB_ID: ${{ steps.target.outputs.job_id }}
+    TARGET_OWNER: ${{ steps.target.outputs.target_owner }}
+    TARGET_REPO: ${{ steps.target.outputs.target_repo }}
+  run: |
+    PR_URL=$(gh pr view "job/${JOB_ID}" \
+      --repo "${TARGET_OWNER}/${TARGET_REPO}" \
+      --json url -q '.url' 2>/dev/null || echo "")
+
+    RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+    jq -n \
+      --arg job_id "$JOB_ID" \
+      --arg pr_url "$PR_URL" \
+      --arg target_repo "${TARGET_OWNER}/${TARGET_REPO}" \
+      --arg run_url "$RUN_URL" \
+      --arg status "completed" \
+      --arg merge_result "open" \
+      '{job_id: $job_id, pr_url: $pr_url, target_repo: $target_repo,
+        run_url: $run_url, status: $status, merge_result: $merge_result,
+        changed_files: [], commit_message: "", log: "", job: ""}' \
+    | curl -s -X POST "$APP_URL/api/github/webhook" \
+      -H "Content-Type: application/json" \
+      -H "X-GitHub-Webhook-Secret-Token: $GH_WEBHOOK_SECRET" \
+      -d @-
+```
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Injecting Repo Context into the System Prompt
+### Anti-Pattern 1: Triggering run-job.yml in the Target Repo
 
-**What people do:** Add CLAUDE.md and package.json to `SOUL.md` or `AGENT.md` inside the instance config.
+**What people do:** Add `run-job.yml` to the target repo (NeuroStory). Push the job branch there directly. Let NeuroStory's Actions run the job.
 
-**Why it's wrong:** `SOUL.md` and `AGENT.md` are static instance configuration that applies to all jobs. Repo-specific context must be job-specific. Putting it in the system prompt makes all jobs for an instance share the same repo context — Epic (strategyes-lab only) would have the wrong context if it gets a generic job.
+**Why it's wrong:** The job Docker image, SOUL.md, AGENT.md, and all instance config live in clawforge. The target repo has no knowledge of ClawForge. Installing ClawForge workflows in every target repo creates a tight coupling that breaks instance isolation — StrategyES's Epic agent could not be scoped to specific repos without installing and scoping workflows in each target repo.
 
-**Do this instead:** Inject repo context into `job.md` (the job description file written by `createJob()`). The entrypoint reads this file and feeds it to `claude -p` as the user prompt, not the system prompt. Each job has its own context.
-
----
-
-### Anti-Pattern 2: Fetching Repo Context Inside the Job Container
-
-**What people do:** Add a step to `entrypoint.sh` that clones or fetches CLAUDE.md from the target repo.
-
-**Why it's wrong:** The job container clones only the ClawForge job repo (the branch containing `job.md`), not the target repo being modified. Adding GitHub API calls inside the container adds complexity, adds a network dependency inside Docker, and duplicates the GitHub token usage pattern already present in the Event Handler.
-
-**Do this instead:** Fetch repo context in the Event Handler before creating the job branch. The data travels through `job.md` as plain text — no container-side networking required.
+**Do this instead:** The job branch always lives in the home repo (clawforge or strategyes-lab). The Actions workflow runs in the home repo's context. The container clones the target repo as a second step.
 
 ---
 
-### Anti-Pattern 3: Blocking Job Creation When Context Fetch Fails
+### Anti-Pattern 2: Passing Target Repo as a Workflow Variable
 
-**What people do:** `await fetchRepoContext()` and throw if GitHub returns 404 or rate limit.
+**What people do:** Store the target repo in a GitHub Actions workflow variable or secret (`TARGET_REPO=neurostory`). Set it before triggering the job.
 
-**Why it's wrong:** Most target repos will eventually lack a CLAUDE.md or have private files. A failing context fetch should never prevent a job from being created. The job runs with less context — the agent still works, just starts colder.
+**Why it's wrong:** Workflow variables are static — the same value applies to every job. You can't have different jobs targeting different repos if the target is a workflow variable. Job-level targeting must travel through the job branch itself (`target.json`) so each job is independently scoped.
 
-**Do this instead:** Wrap context fetching in try-catch per file. Return an empty string if all fetches fail. `createJob()` appends context only when it's non-empty.
+**Do this instead:** Write `target.json` to the job branch at job creation time. The workflow reads it per-run.
 
 ---
 
-### Anti-Pattern 4: Storing Full Job Output in SQLite
+### Anti-Pattern 3: Having the Container Write PRs Using the GitHub Actions Token
 
-**What people do:** Persist the full `claude-output.json` (can be megabytes) into the `job_outcomes` table.
+**What people do:** Pass `${{ github.token }}` (the Actions-generated token) into the container for PR creation on the target repo.
 
-**Why it's wrong:** SQLite is not appropriate for large blob storage. The full job output is already committed to the job branch in Git — it doesn't need to live in the database.
+**Why it's wrong:** `${{ github.token }}` is scoped to the repository that owns the Actions workflow (clawforge). It has no write access to external repos (NeuroStory, strategyes-lab). Using it for `gh pr create --repo neurostory` will fail with 403.
 
-**Do this instead:** Store only the summary fields from the webhook payload: `changed_files` (array), `commit_message` (string), `pr_url` (string), `merge_result` (string), and a truncated `log_summary` (first 2KB of GSD invocations). Link to the PR URL for full output.
+**Do this instead:** Use the `GH_TOKEN` from `SECRETS` (a personal access token with fine-grained repo access). This token is set up by the operator to have write access to all repos in the allowed list. It's already passed to the container as part of `AGENT_GH_TOKEN` → exported as `GH_TOKEN` inside the container.
+
+---
+
+### Anti-Pattern 4: Modifying notify-pr-complete.yml to Watch External Repos
+
+**What people do:** Add another `workflow_run` trigger to `notify-pr-complete.yml` that watches PRs in external repos.
+
+**Why it's wrong:** `notify-pr-complete.yml` is a workflow that lives in clawforge and can only watch events in clawforge. GitHub Actions workflows cannot trigger on events in other repositories.
+
+**Do this instead:** Send the completion notification from within `run-job.yml` (which runs in the clawforge context and has full visibility into the job's success/failure). See Pattern 3.
+
+---
+
+### Anti-Pattern 5: Cloning the Target Repo Inside the Event Handler
+
+**What people do:** Have the Event Handler clone the target repo to validate it, fetch its CLAUDE.md, or check access before creating the job.
+
+**Why it's wrong:** The Event Handler is a Next.js server. It doesn't have `git` installed and shouldn't do filesystem operations. GitHub API calls (already used for `create-job.js`) are the correct interface. The container already handles the clone.
+
+**Do this instead:** For access validation, use the GitHub API to check repo visibility and PAT scope. For CLAUDE.md fetching, use the Contents API (already done for repo context injection in v1.1). No git clone needed at the Event Handler layer.
 
 ---
 
 ## Build Order
 
-Dependencies determine order within the milestone. Features 1 and 3 touch different parts of the stack and can be phased, but have no hard dependency on each other.
+Dependencies are explicit — each phase delivers what the next phase depends on.
 
 ```
-[Feature 2: Pipeline Hardening]
-  → No deps on Features 1 or 3
-  → Pure GitHub Actions changes
-  → Do this first — lowest risk, unblocks validation of the other features
-  → MODIFY: run-job.yml (timeout), notify-pr-complete.yml (hardening)
-  → SYNC: templates/.github/workflows/
+Phase A: Config Layer + createJob Metadata
+  ↓ No dependencies on new code
+  NEW: config/REPOS.json (base + per-instance)
+  MODIFY: lib/tools/create-job.js (write target.json)
+  MODIFY: lib/ai/tools.js (target_repo param, REPOS.json validation)
+  MODIFY: instances/*/config/EVENT_HANDLER.md (allowed repos list)
+  TEST: createJob() writes target.json for cross-repo, not for same-repo
+  ─ Verifiable in isolation without touching entrypoint or Actions
 
-       ↓ (parallel or sequential)
+       ↓ (requires target.json in job branches)
 
-[Feature 1: Smart Job Prompts]
-  → Depends on nothing except GitHub API access (already exists)
-  → NEW: lib/tools/repo-context.js
-  → MODIFY: lib/tools/create-job.js, lib/tools/github.js, lib/ai/tools.js
-  → Test: trigger a job, inspect job.md for repo context block
+Phase B: Container Execution (entrypoint.sh + run-job.yml)
+  MODIFY: templates/.github/workflows/run-job.yml (resolve-target step)
+  MODIFY: templates/docker/job/entrypoint.sh (two-phase clone, cross-repo PR)
+  SYNC: live .github/workflows/ files after template changes
+  TEST: trigger a cross-repo job, verify Claude operates in target repo working tree
+  ─ Requires Phase A to be shipping target.json
 
-       ↓ (after Feature 1 validated)
+       ↓ (requires cross-repo PRs to exist)
 
-[Feature 3: Previous Job Context]
-  → Depends on jobs completing successfully (Feature 2 hardening helps)
-  → NEW: lib/db/job-outcomes.js
-  → MODIFY: lib/db/schema.js, api/index.js (webhook handler), lib/ai/tools.js
-  → GENERATE: drizzle migration
-  → Test: complete a job, query job_outcomes, verify agent can retrieve it
+Phase C: Notification Pipeline
+  MODIFY: templates/.github/workflows/run-job.yml (add cross-repo notify step)
+  MODIFY: lib/db/schema.js (add target_repo to jobOutcomes)
+  MODIFY: lib/db/job-outcomes.js (persist target_repo)
+  MODIFY: api/index.js (extract target_repo from payload, include in message)
+  GENERATE: drizzle migration
+  TEST: complete a cross-repo job end-to-end, verify Slack/Telegram message has correct PR URL
 
-       ↓ (after Feature 3 schema exists)
+       ↓ (after full E2E validated)
 
-[Feature 3b: Agent Routing Improvements — quick vs. plan-phase thresholds]
-  → Depends on: agent having job history context (Feature 3)
-  → MODIFY: EVENT_HANDLER.md prompt language for routing decisions
-  → MODIFY: instances/*/config/EVENT_HANDLER.md
-  → Test: send simple vs. complex tasks, verify routing
+Phase D: Regression Verification
+  TEST: same-repo (clawforge) job — verify no regression
+  TEST: both instances (Noah/Archie + StrategyES/Epic) — scoped repo lists respected
+  SYNC: instances/*/config/ docs if EVENT_HANDLER.md changed
 ```
 
-**Rationale for this order:**
-- Pipeline hardening first because it doesn't require any new code paths, just fixes to existing workflows. Reduces risk of flaky tests when validating new features.
-- Repo context injection second because it's purely additive to `createJob()` with no schema changes or new infrastructure. Fastest to validate (just inspect `job.md` on the next test job).
-- Job outcomes third because it requires a schema migration, a new DB module, webhook handler changes, and a new LangGraph tool — more moving parts that should be built on a stable foundation.
-- Routing improvements last because they depend on the agent having job history context to make informed routing decisions.
+**Rationale:**
+- Phase A first because config and tool-layer changes have no runtime risk — they only affect what gets written to the job branch. Verifiable with a unit test of `createJob()`.
+- Phase B second because the entrypoint can only be tested with a real Docker run — it's the highest-risk change. Build on a stable config layer.
+- Phase C third because it depends on cross-repo PRs existing (Phase B). The notification schema change is small and doesn't block Phase B testing.
+- Phase D last as a regression sweep — same-repo jobs must continue working throughout.
 
 ---
 
-## Integration Points
+## Integration Points (Summary Table)
 
-### Event Handler ↔ GitHub API (new calls for repo context)
+### Event Handler ↔ REPOS.json (new configuration read)
 
-| Call | Where | Rate Limit Impact |
-|------|-------|-------------------|
-| `GET /repos/{owner}/{repo}/contents/CLAUDE.md` | `repo-context.js` | 1 req per job |
-| `GET /repos/{owner}/{repo}/contents/package.json` | `repo-context.js` | 1 req per job |
-| `GET /repos/{owner}/{repo}/git/trees/HEAD` | `repo-context.js` | 1 req per job |
+| Trigger | Handler | Data Read |
+|---------|---------|-----------|
+| `create_job` tool invocation | `lib/ai/tools.js` | `config/REPOS.json` or `instances/{name}/config/REPOS.json` |
 
-Total: 3 additional GitHub API calls per job. At 5,000 req/hour authenticated limit: safe up to ~1,600 jobs/hour (current volume is well under 100/day).
+### createJob ↔ GitHub API (new file write)
 
-### Webhook Handler ↔ job_outcomes table (new write path)
+| Call | Where | Notes |
+|------|-------|-------|
+| `PUT /repos/{home-owner}/{home-repo}/contents/logs/{UUID}/target.json` | `lib/tools/create-job.js` | Only when target_repo is provided |
 
-| Trigger | Handler | Data Written |
-|---------|---------|-------------|
-| `notify-pr-complete.yml` POST to `/api/github/webhook` | `api/index.js` GitHub webhook handler | `saveJobOutcome(payload)` |
-| `notify-job-failed.yml` POST to `/api/github/webhook` | Same handler, `status: "failed"` | `saveJobOutcome(payload)` |
+### run-job.yml ↔ clawforge job branch (new read)
 
-Both workflows POST to the same endpoint. The handler distinguishes success vs failure by the `status` field in the payload.
+| Read | When | Notes |
+|------|------|-------|
+| `logs/{UUID}/target.json` | Before docker run | Determines TARGET_REPO_URL |
 
-### Agent ↔ job_outcomes table (new read path)
+### entrypoint.sh ↔ target repo (new clone + push)
 
-| Tool | Data Source | Query |
-|------|------------|-------|
-| `get_recent_jobs` (new) | `lib/db/job-outcomes.js` | `SELECT * FROM job_outcomes ORDER BY created_at DESC LIMIT ?` |
-| `get_job_status` (existing) | `lib/tools/github.js` | GitHub Actions API (unchanged) |
+| Operation | When | Auth |
+|-----------|------|------|
+| `git clone TARGET_REPO_URL /job` | Cross-repo jobs only | GH_TOKEN (PAT with target repo write) |
+| `git push origin HEAD:job/{UUID}` | Cross-repo jobs, after Claude work | GH_TOKEN |
+| `gh pr create --repo owner/repo` | Cross-repo jobs | GH_TOKEN |
 
-These two tools cover different time horizons: `get_job_status` is for live/running jobs; `get_recent_jobs` is for completed history.
+### run-job.yml ↔ Event Handler (new notification path for cross-repo)
 
-### Internal Boundary: createJob ↔ repo-context
+| Trigger | Endpoint | Data |
+|---------|----------|------|
+| After docker run success (cross-repo) | `POST /api/github/webhook` | `{ job_id, pr_url (target repo), target_repo, status, merge_result: "open" }` |
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `createJob()` → `fetchRepoContext()` | Direct function call, returns string | Best-effort: empty string if all fetches fail. `createJob()` appends to jobDescription only if non-empty. |
-| `fetchRepoContext()` → `githubApi()` | Direct calls to existing REST helper | Uses same `GH_TOKEN` as all other GitHub calls. No new auth. |
+### job_outcomes ↔ target_repo (schema addition)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `target_repo` | `TEXT` (nullable) | `owner/repo` for cross-repo, NULL for same-repo |
 
 ---
 
@@ -590,31 +770,29 @@ These two tools cover different time horizons: `get_job_status` is for live/runn
 
 | Scale | Architecture Adjustments |
 |-------|--------------------------|
-| Current (~50 jobs/day) | No concerns. 3 extra GitHub API calls per job is negligible. SQLite handles job_outcomes easily. |
-| 1,000 jobs/day | GitHub API calls still well within 5,000/hour. job_outcomes table grows but SQLite handles 1M rows without indexes. Add created_at index if queries slow down. |
-| 10,000+ jobs/day | GitHub API rate limiting becomes real concern for repo context fetches. Implement per-repo caching of CLAUDE.md with 5-minute TTL in Event Handler memory. SQLite may need migration to PostgreSQL for job_outcomes if write contention increases. |
-
-The job_outcomes table is append-only with no concurrent writes (GitHub webhooks are serialized through a single server process). No write contention concern at current scale.
+| Current (2 instances, ~50 jobs/day) | No concerns. Second clone adds ~5-10s per cross-repo job. PAT scoping is manual but manageable. |
+| 5-10 instances, ~500 jobs/day | REPOS.json management becomes tedious. Consider centralized repo registry in SQLite settings table instead of JSON files. PAT rotation risk increases. |
+| 50+ instances | Automated PAT provisioning needed (GitHub App with org-level installation). Move to GitHub App tokens instead of PATs for dynamic repo access. |
 
 ---
 
 ## Sources
 
-- Direct codebase inspection: `lib/tools/create-job.js` — confirmed job.md creation flow
-- Direct codebase inspection: `lib/ai/tools.js` — confirmed createJobTool schema and current parameters
-- Direct codebase inspection: `lib/tools/github.js` — confirmed githubApi() helper, confirmed GitHub API call patterns
-- Direct codebase inspection: `api/index.js` — confirmed webhook handler flow and notification creation
-- Direct codebase inspection: `.github/workflows/notify-pr-complete.yml` — confirmed webhook payload fields
-- Direct codebase inspection: `.github/workflows/notify-job-failed.yml` — confirmed failure notification flow
-- Direct codebase inspection: `.github/workflows/run-job.yml` — confirmed no timeout is set
-- Direct codebase inspection: `lib/db/schema.js` and `lib/db/job-origins.js` — confirmed existing schema and jobOrigins pattern to follow for job_outcomes
-- Direct codebase inspection: `lib/ai/agent.js` — confirmed LangGraph agent structure and tool registration
-- GitHub REST API docs: Contents API `GET /repos/{owner}/{repo}/contents/{path}` — confirmed response includes `content` (base64 encoded)
-- GitHub REST API docs: Trees API `GET /repos/{owner}/{repo}/git/trees/{tree_sha}` — confirmed recursive=false returns only root tree entries
+- Direct codebase inspection: `lib/tools/create-job.js` — confirmed branch and job.md creation, `GH_OWNER`/`GH_REPO` hardcoded from env
+- Direct codebase inspection: `lib/ai/tools.js` — confirmed current tool schema (job_description only), no target repo parameter exists
+- Direct codebase inspection: `templates/docker/job/entrypoint.sh` — confirmed single-clone flow, `REPO_URL` usage, config paths, PR creation with `gh pr create`
+- Direct codebase inspection: `templates/.github/workflows/run-job.yml` — confirmed `REPO_URL = github.server_url + github.repository + ".git"`, no mechanism for target repo override
+- Direct codebase inspection: `templates/.github/workflows/notify-pr-complete.yml` — confirmed `workflow_run` trigger on `auto-merge.yml` only (same-repo dependency)
+- Direct codebase inspection: `api/index.js handleGithubWebhook` — confirmed webhook payload handling, `saveJobOutcome` call, `results` object shape
+- Direct codebase inspection: `lib/db/schema.js` — confirmed `jobOutcomes` table schema, no `target_repo` column
+- Direct codebase inspection: `lib/db/job-outcomes.js` — confirmed `saveJobOutcome` signature, no `target_repo` parameter
+- Direct codebase inspection: `.planning/PROJECT.md` — confirmed cross-repo bug discovery 2026-02-25, NeuroStory example
+- Direct codebase inspection: `instances/noah/config/AGENT.md`, `instances/strategyES/.env.example` — confirmed per-instance config pattern
+- GitHub Actions docs: `workflow_run` trigger scope — confirmed workflows can only watch events in the same repo
+- GitHub Actions docs: `${{ github.token }}` scope — confirmed scoped to triggering repo only, no cross-repo write
 - Confidence: HIGH for all integration points (verified against live codebase with line-level precision)
-- Confidence: MEDIUM for job_outcomes schema design (pattern borrowed from job-origins.js, not directly validated)
 
 ---
 
-*Architecture research for: ClawForge v1.1 — Smart job prompts, pipeline hardening, previous job context*
-*Researched: 2026-02-24*
+*Architecture research for: ClawForge v1.2 — Cross-repo job targeting*
+*Researched: 2026-02-25*
