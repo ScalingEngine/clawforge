@@ -1,0 +1,111 @@
+# Requirements: ClawForge
+
+**Defined:** 2026-02-25
+**Core Value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results without operator intervention
+
+## v1.2 Requirements
+
+Requirements for cross-repo job targeting. Each maps to roadmap phases.
+
+### Configuration & Auth
+
+- [ ] **CFG-01**: Each instance has a REPOS.json config defining allowed target repos with owner, repo slug, and aliases
+- [ ] **CFG-02**: PAT per instance is scoped with contents:write and pull_requests:write on all allowed repos (operator action documented)
+
+### Agent & Tool Schema
+
+- [ ] **TOOL-01**: create_job tool accepts optional target_repo parameter validated against allowed repos list
+- [ ] **TOOL-02**: Agent resolves target repo from natural language using allowed repos config (name/alias matching)
+- [ ] **TOOL-03**: create-job.js writes target.json sidecar to clawforge job branch when target repo is specified
+
+### Container Execution
+
+- [ ] **EXEC-01**: Entrypoint performs two-phase clone — clawforge for config/metadata, target repo (shallow) for Claude's working tree
+- [ ] **EXEC-02**: SOUL.md and AGENT.md baked into Docker image so cross-repo jobs have system prompt
+- [ ] **EXEC-03**: Clone failure captured as explicit failure stage with clone-error.md artifact
+- [ ] **EXEC-04**: gh auth setup-git used for all clones (no PAT in clone URLs)
+
+### PR Pipeline
+
+- [ ] **PR-01**: run-job.yml reads target.json from job branch and injects TARGET_REPO_URL into container env
+- [ ] **PR-02**: Entrypoint creates PR on target repo via gh pr create --repo owner/repo
+- [ ] **PR-03**: Default branch detected via gh repo view (not hardcoded to main)
+- [ ] **PR-04**: PR body includes ClawForge attribution with job ID and originating system
+- [ ] **PR-05**: Cross-repo branches use clawforge/{uuid} naming convention in target repos
+
+### Notifications
+
+- [ ] **NOTIF-01**: Entrypoint sends completion webhook POST to Event Handler for cross-repo jobs
+- [ ] **NOTIF-02**: job_outcomes table has nullable target_repo column recording which repo was targeted
+- [ ] **NOTIF-03**: Success notifications include correct target repo PR URL in Slack/Telegram messages
+- [ ] **NOTIF-04**: get_job_status tool returns target repo PR URL when available
+
+### Regression Safety
+
+- [ ] **REG-01**: Same-repo jobs work identically when TARGET_REPO_URL is absent or equals REPO_URL
+- [ ] **REG-02**: Both instances (Noah/Archie and StrategyES/Epic) verified end-to-end after all changes
+
+## Future Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Instance Management
+
+- **INST-01**: Archie can spin up new agent instances from a template (instance generator)
+- **INST-02**: Per-instance onboarding flow with channel setup and repo scoping
+- **INST-03**: Instance health dashboard showing job success rates per agent
+
+### Advanced Features
+
+- **ADV-01**: Multi-repo fan-out jobs (one task dispatched to multiple repos)
+- **ADV-02**: GitHub App tokens replacing PATs for finer permission control
+- **ADV-03**: Self-improving agents reviewing own success/failure patterns
+
+## Out of Scope
+
+Explicitly excluded. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Auto-merge on target repos | Target repos control their own merge policies; ClawForge creates PRs, doesn't merge them |
+| Dynamic repo discovery via GitHub API | Security risk — exposes full org repo surface; explicit allowed list is safer |
+| One PAT with org-wide access | Blast radius too large if compromised; scoped PATs per instance |
+| Cross-repo jobs touching multiple repos | Requires transaction model that doesn't exist; use sequential single-repo jobs |
+| Installing ClawForge workflows in target repos | Creates tight coupling; entrypoint handles notification directly |
+| Store target repo working tree on clawforge branch | Target repos can be gigabytes; only logs commit to clawforge |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CFG-01 | — | Pending |
+| CFG-02 | — | Pending |
+| TOOL-01 | — | Pending |
+| TOOL-02 | — | Pending |
+| TOOL-03 | — | Pending |
+| EXEC-01 | — | Pending |
+| EXEC-02 | — | Pending |
+| EXEC-03 | — | Pending |
+| EXEC-04 | — | Pending |
+| PR-01 | — | Pending |
+| PR-02 | — | Pending |
+| PR-03 | — | Pending |
+| PR-04 | — | Pending |
+| PR-05 | — | Pending |
+| NOTIF-01 | — | Pending |
+| NOTIF-02 | — | Pending |
+| NOTIF-03 | — | Pending |
+| NOTIF-04 | — | Pending |
+| REG-01 | — | Pending |
+| REG-02 | — | Pending |
+
+**Coverage:**
+- v1.2 requirements: 20 total
+- Mapped to phases: 0
+- Unmapped: 20 ⚠️
+
+---
+*Requirements defined: 2026-02-25*
+*Last updated: 2026-02-25 after initial definition*
