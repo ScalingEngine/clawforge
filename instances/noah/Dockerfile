@@ -38,6 +38,7 @@ COPY config/ ./config/
 COPY instances/noah/config/SOUL.md ./config/SOUL.md
 COPY instances/noah/config/EVENT_HANDLER.md ./config/EVENT_HANDLER.md
 COPY instances/noah/config/AGENT.md ./config/AGENT.md
+COPY instances/noah/config/REPOS.json ./config/REPOS.json
 
 # Build JSX components (esbuild: .jsx → .js)
 RUN npm run build

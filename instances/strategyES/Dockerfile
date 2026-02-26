@@ -38,6 +38,7 @@ COPY config/ ./config/
 COPY instances/strategyES/config/SOUL.md ./config/SOUL.md
 COPY instances/strategyES/config/EVENT_HANDLER.md ./config/EVENT_HANDLER.md
 COPY instances/strategyES/config/AGENT.md ./config/AGENT.md
+COPY instances/strategyES/config/REPOS.json ./config/REPOS.json
 
 # Build JSX components (esbuild: .jsx → .js)
 RUN npm run build
