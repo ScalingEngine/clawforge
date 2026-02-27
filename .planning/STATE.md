@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Phase 9 — Config Layer + Tool Schema + Entrypoint Foundation
+**Current focus:** Phase 10 — Actions Workflow + Container Execution + Cross-Repo PR
 
 ## Current Position
 
-Phase: 9 of 12 (Config Layer + Tool Schema + Entrypoint Foundation)
+Phase: 10 of 12 (Actions Workflow + Container Execution + Cross-Repo PR)
 Plan: 3 of 3 in current phase
-Status: Complete
-Last activity: 2026-02-26 — 09-03 complete: create_job tool schema extended with target_repo, target.json sidecar write implemented
+Status: In Progress
+Last activity: 2026-02-26 — 10-03 complete: notify-pr-complete.yml extended with dual-trigger push/workflow_run and cross-repo pr-result.json detection
 
-Progress: [████████░░░░░░░░░░░░] 38% (phases 1-8 complete, 4 remaining in v1.2)
+Progress: [█████████░░░░░░░░░░░] 42% (phases 1-9 complete, 3 remaining in v1.2)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Progress: [████████░░░░░░░░░░░░] 38% (ph
 | Phase 09 P01 | 2 | 2 tasks | 6 files |
 | Phase 09 P02 | 5 | 2 tasks | 4 files |
 | Phase 09 P03 | 1 | 2 tasks | 2 files |
+| Phase 10 P03 | 1 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 09]: No PAT in clone URLs: gh auth setup-git handles credential resolution; GH_TOKEN only flows via env var (EXEC-04)
 - [Phase 09]: target_repo validation at tool handler layer — agent layer validates, job layer trusts; error response includes available repo names for self-correction
 - [Phase 09]: target.json pre-computes repo_url as full clone URL — entrypoint can use directly without string interpolation
+- [Phase 10]: Cross-repo notification fires from push to job/* branch with pr-result.json; push is only observable clawforge event when PR created on foreign repo
+- [Phase 10]: notify-pr-complete.yml route step: path=cross_repo/same_repo/skip controls which notification path executes; status=cross_repo_pr_open distinguishes from same-repo completed
 
 ### Pending Todos
 
@@ -79,5 +82,5 @@ Recent decisions affecting v1.2 work:
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 09-03-PLAN.md — create_job tool schema extended with target_repo, target.json sidecar write implemented
+Stopped at: Completed 10-03-PLAN.md — notify-pr-complete.yml extended with dual-trigger push/workflow_run and cross-repo pr-result.json detection
 Resume file: None

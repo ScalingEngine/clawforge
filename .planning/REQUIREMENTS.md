@@ -27,11 +27,11 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### PR Pipeline
 
-- [ ] **PR-01**: Entrypoint reads target.json directly from the clawforge job branch (/job/logs/${JOB_ID}/target.json) and derives TARGET_REPO_URL internally; run-job.yml is unchanged
-- [ ] **PR-02**: Entrypoint creates PR on target repo via gh pr create --repo owner/repo
-- [ ] **PR-03**: Default branch detected via gh repo view (not hardcoded to main)
-- [ ] **PR-04**: PR body includes ClawForge attribution with job ID and originating system
-- [ ] **PR-05**: Cross-repo branches use clawforge/{uuid} naming convention in target repos
+- [x] **PR-01**: Entrypoint reads target.json directly from the clawforge job branch (/job/logs/${JOB_ID}/target.json) and derives TARGET_REPO_URL internally; run-job.yml is unchanged
+- [x] **PR-02**: Entrypoint creates PR on target repo via gh pr create --repo owner/repo
+- [x] **PR-03**: Default branch detected via gh repo view (not hardcoded to main)
+- [x] **PR-04**: PR body includes ClawForge attribution with job ID and originating system
+- [x] **PR-05**: Cross-repo branches use clawforge/{uuid} naming convention in target repos
 
 ### Notifications
 
@@ -87,13 +87,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TOOL-03 | Phase 9 | Complete |
 | EXEC-02 | Phase 9 | Complete |
 | EXEC-04 | Phase 9 | Complete |
-| PR-01 | Phase 10 | Pending |
+| PR-01 | Phase 10 | Complete |
 | EXEC-01 | Phase 10 | Pending |
 | EXEC-03 | Phase 10 | Pending |
-| PR-02 | Phase 10 | Pending |
-| PR-03 | Phase 10 | Pending |
-| PR-04 | Phase 10 | Pending |
-| PR-05 | Phase 10 | Pending |
+| PR-02 | Phase 10 | Complete |
+| PR-03 | Phase 10 | Complete |
+| PR-04 | Phase 10 | Complete |
+| PR-05 | Phase 10 | Complete |
 | NOTIF-01 | Phase 11 | Pending |
 | NOTIF-02 | Phase 11 | Pending |
 | NOTIF-03 | Phase 11 | Pending |
