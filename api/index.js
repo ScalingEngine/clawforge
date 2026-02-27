@@ -265,6 +265,7 @@ async function handleGithubWebhook(request) {
       log: payload.log || '',
       changed_files: payload.changed_files || [],
       commit_message: payload.commit_message || '',
+      target_repo: payload.target_repo || '',   // NEW: passthrough from Phase 10 payload
     };
 
     const message = await summarizeJob(results);
@@ -283,6 +284,7 @@ async function handleGithubWebhook(request) {
           status: results.status,
           mergeResult: results.merge_result,
           prUrl: results.pr_url,
+          targetRepo: results.target_repo || null,   // NEW: nullable
           changedFiles: results.changed_files,
           logSummary: message,  // message = await summarizeJob(results)
         });
@@ -305,6 +307,20 @@ async function handleGithubWebhook(request) {
             console.log(`Slack notification sent for job ${jobId.slice(0, 8)}`);
           } catch (err) {
             console.error('Failed to send Slack notification:', err);
+          }
+        }
+      }
+
+      // Send to Telegram thread (thread-origin routing)
+      if (origin.platform === 'telegram') {
+        const { TELEGRAM_BOT_TOKEN } = process.env;
+        if (TELEGRAM_BOT_TOKEN && origin.threadId) {
+          try {
+            const { sendMessage } = await import('../lib/tools/telegram.js');
+            await sendMessage(TELEGRAM_BOT_TOKEN, origin.threadId, message);
+            console.log(`Telegram notification sent for job ${jobId.slice(0, 8)}`);
+          } catch (err) {
+            console.error('Failed to send Telegram notification:', err);
           }
         }
       }
