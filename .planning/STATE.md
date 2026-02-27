@@ -44,6 +44,7 @@ Progress: [█████████░░░░░░░░░░░] 42% (ph
 | Phase 09 P01 | 2 | 2 tasks | 6 files |
 | Phase 09 P02 | 5 | 2 tasks | 4 files |
 | Phase 09 P03 | 1 | 2 tasks | 2 files |
+| Phase 10 P01 | 3 | 3 tasks | 2 files |
 | Phase 10 P03 | 1 | 2 tasks | 1 files |
 
 ## Accumulated Context
@@ -66,6 +67,10 @@ Recent decisions affecting v1.2 work:
 - [Phase 09]: No PAT in clone URLs: gh auth setup-git handles credential resolution; GH_TOKEN only flows via env var (EXEC-04)
 - [Phase 09]: target_repo validation at tool handler layer — agent layer validates, job layer trusts; error response includes available repo names for self-correction
 - [Phase 09]: target.json pre-computes repo_url as full clone URL — entrypoint can use directly without string interpolation
+- [Phase 10 P01]: WORK_DIR defaults to /job; set to /workspace only when target.json detected — preserves 100% backward compat for same-repo jobs
+- [Phase 10 P01]: clone-error.md committed to clawforge job branch before exit 1 — Phase 11 failure detection reads it there
+- [Phase 10 P01]: Explicit cd /job before section 12 git operations — WORK_DIR may be /workspace so must restore clawforge tree for commit
+- [Phase 10 P01]: CLAUDE.md and package.json read from WORK_DIR so cross-repo Claude gets target repo context, not clawforge context
 - [Phase 10]: Cross-repo notification fires from push to job/* branch with pr-result.json; push is only observable clawforge event when PR created on foreign repo
 - [Phase 10]: notify-pr-complete.yml route step: path=cross_repo/same_repo/skip controls which notification path executes; status=cross_repo_pr_open distinguishes from same-repo completed
 

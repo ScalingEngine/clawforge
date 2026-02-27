@@ -20,9 +20,9 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### Container Execution
 
-- [ ] **EXEC-01**: Entrypoint performs two-phase clone — clawforge for config/metadata, target repo (shallow) for Claude's working tree
+- [x] **EXEC-01**: Entrypoint performs two-phase clone — clawforge for config/metadata, target repo (shallow) for Claude's working tree
 - [x] **EXEC-02**: SOUL.md and AGENT.md baked into Docker image so cross-repo jobs have system prompt
-- [ ] **EXEC-03**: Clone failure captured as explicit failure stage with clone-error.md artifact
+- [x] **EXEC-03**: Clone failure captured as explicit failure stage with clone-error.md artifact
 - [x] **EXEC-04**: gh auth setup-git used for all clones (no PAT in clone URLs)
 
 ### PR Pipeline
@@ -88,8 +88,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXEC-02 | Phase 9 | Complete |
 | EXEC-04 | Phase 9 | Complete |
 | PR-01 | Phase 10 | Complete |
-| EXEC-01 | Phase 10 | Pending |
-| EXEC-03 | Phase 10 | Pending |
+| EXEC-01 | Phase 10 | Complete |
+| EXEC-03 | Phase 10 | Complete |
 | PR-02 | Phase 10 | Complete |
 | PR-03 | Phase 10 | Complete |
 | PR-04 | Phase 10 | Complete |
@@ -108,4 +108,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-25*
-*Last updated: 2026-02-25 — traceability populated after roadmap creation*
+*Last updated: 2026-02-27 — EXEC-01, EXEC-03 complete (10-01); PR-01 wording corrected (10-01)*
