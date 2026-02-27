@@ -2,10 +2,10 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-25)
+See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Phase 11 — Notification Pipeline DB Schema
+**Current focus:** Planning next milestone (v1.3)
 
 ## Current Position
 

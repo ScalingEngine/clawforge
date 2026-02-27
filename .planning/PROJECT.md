@@ -2,38 +2,30 @@
 
 ## What This Is
 
-A multi-channel AI agent platform that connects Claude Code CLI to messaging channels (Slack, Telegram, Web Chat) with strict Docker isolation between instances. Two-layer architecture: Event Handler (LangGraph ReAct agent) dispatches jobs to ephemeral Docker containers running Claude Code CLI with GSD workflows. Agents receive structured prompts with repo context and prior job history, producing high-quality results autonomously.
+A multi-channel AI agent platform that connects Claude Code CLI to messaging channels (Slack, Telegram, Web Chat) with strict Docker isolation between instances. Two-layer architecture: Event Handler (LangGraph ReAct agent) dispatches jobs to ephemeral Docker containers running Claude Code CLI with GSD workflows. Agents receive structured prompts with full repo context and prior job history, then operate on any allowed target repo — creating PRs, committing changes, and surfacing results back to the operator via Slack or Telegram.
 
 ## Core Value
 
 Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results without operator intervention.
 
-## Current Milestone: v1.2 Cross-Repo Job Targeting
+## Current State (after v1.2)
 
-**Goal:** Enable job containers to clone and operate on any allowed target repo, not just clawforge.
-
-**Target features:**
-- Allowed repos configuration per instance
-- Agent repo selection from allowed list based on user message context
-- Container clones target repo at runtime (entrypoint modification)
-- PRs created on target repo
-- Notifications with correct target repo PR URLs
-- Single PAT per instance scoped to allowed repos
-- No regression on same-repo (clawforge) jobs
-
-## Current State (after v1.1)
-
-**Shipped:** v1.0 Foundation + v1.1 Agent Intelligence & Pipeline Hardening
-**Codebase:** 5,651 LOC JavaScript (Next.js + LangGraph + Drizzle ORM)
-**Instances:** 2 (Noah/Archie — full access, StrategyES/Epic — scoped)
+**Shipped:** v1.0 Foundation + v1.1 Agent Intelligence + v1.2 Cross-Repo Job Targeting
+**Codebase:** ~7,647 LOC JavaScript (Next.js + LangGraph + Drizzle ORM)
+**Instances:** 2 (Noah/Archie — full access, StrategyES/Epic — scoped to strategyes-lab)
 
 **What works:**
-- Full job pipeline for **same-repo jobs**: message → Event Handler → job branch → GitHub Actions → Docker container → Claude Code CLI → PR → auto-merge → notification
-- Structured 5-section FULL_PROMPT (Target, Docs, Stack, Task, GSD Hint) with CLAUDE.md injection
-- Previous job context: follow-up jobs start warm with prior merged job summary
-- Failure stage detection and surfacing in notifications (docker_pull/auth/claude)
+- Full job pipeline for **same-repo and cross-repo jobs**: message → Event Handler → job branch → GitHub Actions → Docker container → Claude Code CLI → PR → notification
+- Cross-repo targeting: agent resolves repo from natural language, container performs two-phase clone, PR created on target repo with correct attribution
+- Per-instance REPOS.json with `loadAllowedRepos()` + `resolveTargetRepo()` (slug/name/alias matching)
+- SOUL.md and AGENT.md baked into Docker image at `/defaults/` — cross-repo jobs have system prompt without clawforge config in working tree
+- `target.json` sidecar on job branch carries target metadata; entrypoint reads it at runtime
+- Structured 5-section FULL_PROMPT (Target, Docs, Stack, Task, GSD Hint) with CLAUDE.md injection from target repo
+- Previous job context: follow-up jobs start warm with prior merged job summary (thread-scoped)
+- Failure stage detection: docker_pull/auth/clone/claude surfaced in Slack/Telegram notifications
 - Zero-commit PR guard, 30-min timeout, explicit JSONL lookup
-- Test harness aligned with production prompt format
+- `job_outcomes` table: tracks completions with `target_repo` column; `getJobStatus()` DB overlay returns completed job PR URLs
+- VERIFICATION-RUNBOOK.md: operator-executable checklist for 5 regression scenarios (S1-S5)
 - All templates byte-for-byte synced with live files
 
 ## Requirements
@@ -56,35 +48,42 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 - ✓ Previous job context: thread-scoped merged job summaries — v1.1
 - ✓ Notification accuracy: failure stage in messages, explicit JSONL lookup — v1.1
 - ✓ Test-production alignment: 5-section prompt, file-redirect delivery — v1.1
+- ✓ Allowed repos configuration per instance with REPOS.json and resolver — v1.2
+- ✓ Agent selects target repo from natural language (slug/name/alias matching) — v1.2
+- ✓ Job containers clone and operate on target repo via two-phase clone — v1.2
+- ✓ PRs created on target repo with clawforge/{uuid} branch naming and attribution — v1.2
+- ✓ Notifications include correct target repo PR URLs — v1.2
+- ✓ gh auth setup-git for all clones; no PAT in clone URLs — v1.2
+- ✓ target_repo column in job_outcomes; getJobStatus() DB overlay — v1.2
+- ✓ Same-repo (clawforge) jobs continue working without regression — v1.2
 
 ### Active
 
-- [ ] Allowed repos configuration per instance with repo-to-owner mapping
-- [ ] Agent selects target repo from allowed list based on user message
-- [ ] Job containers clone and operate on the target repo
-- [ ] PRs created on the target repo, not clawforge
-- [ ] Notifications include correct target repo PR URLs
-- [ ] Single PAT per instance for target repo access
-- [ ] Same-repo (clawforge) jobs continue working without regression
+*(Next milestone — not yet defined)*
 
 ### Out of Scope
 
 - Max subscription auth (switching from API keys) — defer until volume justifies
-- Tier 3 Level 2: Instance generator (Archie standing up new instances) — future milestone
-- Tier 3 Level 3: Self-improving agents (meta-agent reviewing success/failure) — future milestone
-- Tier 3 Level 4: Agent marketplace / composition — future milestone
+- Instance generator (Archie spinning up new instances) — future milestone
+- Self-improving agents (meta-agent reviewing success/failure) — future milestone
+- Agent marketplace / composition — future milestone
 - New channel integrations — existing Slack/Telegram/Web sufficient
 - OpenTelemetry integration — hooks + committed logs sufficient for 2 instances
 - Full repo tree fetch in context — rate limits + noise; CLAUDE.md + package.json only
+- Auto-merge on target repos — target repos control their own merge policies
+- Dynamic repo discovery via GitHub API — security risk; explicit allowed list is safer
+- One PAT with org-wide access — blast radius too large; scoped PATs per instance
+- Cross-repo jobs touching multiple repos — requires transaction model; use sequential single-repo jobs
+- Installing ClawForge workflows in target repos — creates tight coupling
 
 ## Context
 
 - **Codebase mapped**: `.planning/codebase/` has 7 documents covering architecture, stack, conventions, concerns
 - **Templates synced**: All docker/ and workflow files byte-for-byte identical with templates/
-- **SQLite DB**: job_outcomes table tracks completions for prior-context injection
-- **Prompt architecture**: 5-section structured FULL_PROMPT delivered via /tmp/prompt.txt file redirect
-- **`.env.vps`**: Added to `.gitignore` (v1.0 security fix)
-- **Cross-repo jobs broken**: Job containers run inside clawforge's GitHub Actions checkout. When a job targets a different repo (e.g., NeuroStory), the entrypoint has no mechanism to clone the target repo — Claude operates on clawforge's working tree instead. The notification falsely reports success with a stale PR URL. Discovered 2026-02-25 when a NeuroStory README job reported "Merged" but no changes landed. **Same-repo jobs work correctly.** Cross-repo targeting needs its own phase.
+- **SQLite DB**: job_outcomes table with `target_repo` column tracks completions for prior-context injection and status lookups
+- **Prompt architecture**: 5-section structured FULL_PROMPT delivered via /tmp/prompt.txt file redirect; CLAUDE.md read from WORK_DIR (target repo context for cross-repo jobs)
+- **VERIFICATION-RUNBOOK.md**: Operator checklist for 5 regression scenarios — must be executed before next significant change
+- **Pending operator tasks**: StrategyES REPOS.json content confirmation; PAT scope update per .env.example; OpenAI key for Epic audio transcription
 
 ## Constraints
 
@@ -108,6 +107,13 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 | job_outcomes with UUID PK | Allows multiple outcomes per job; TEXT column for changedFiles | ✓ Persistence working |
 | Thread-scoped prior context lookup | Filters by thread_id for instance isolation, merge_result='merged' gate | ✓ Warm starts working |
 | failure_stage in summarizeJob userMessage | Uses existing .filter(Boolean) pattern; no system prompt change needed | ✓ Stage surfaced |
+| Cross-repo notification from entrypoint directly | notify-pr-complete.yml cannot observe events in foreign repos | ✓ Notifications firing |
+| SOUL.md/AGENT.md baked into Docker image /defaults/ | Cross-repo working tree has no ClawForge config | ✓ System prompt present for cross-repo jobs |
+| gh auth setup-git for all clones | PAT never interpolated into clone URLs (Actions log exposure risk) | ✓ No PAT leakage |
+| Job branches always live in clawforge | on:create trigger constraint; target.json sidecar carries target metadata | ✓ Clean separation |
+| WORK_DIR defaults to /job, set to /workspace only when target.json detected | 100% backward compat for same-repo jobs | ✓ Zero regression |
+| DB overlay fires only when jobId provided AND filteredRuns.length === 0 | Live path fully unchanged for in-progress jobs | ✓ getJobStatus() accurate |
+| Cross-repo PRs notify at PR creation, same-repo at merge | Semantic difference surfaces in UX language ("open for review" vs "merged") | ✓ Language differentiated |
 
 ---
-*Last updated: 2026-02-25 after v1.2 milestone start*
+*Last updated: 2026-02-27 after v1.2 milestone*

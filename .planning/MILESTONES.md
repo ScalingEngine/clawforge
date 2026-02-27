@@ -30,3 +30,21 @@
 
 ---
 
+
+## v1.2 Cross-Repo Job Targeting (Shipped: 2026-02-27)
+
+**Phases:** 9-12, 10 plans (v1.2 only), 23 total
+**Timeline:** 2 days (2026-02-25 → 2026-02-26)
+**Files changed:** 46 files (+5,605 / -93)
+**Archive:** milestones/v1.2-ROADMAP.md, milestones/v1.2-REQUIREMENTS.md
+
+**Key accomplishments:**
+- Per-instance REPOS.json config with `loadAllowedRepos()` + `resolveTargetRepo()` supporting case-insensitive slug/name/alias matching
+- SOUL.md and AGENT.md baked into job Docker image at `/defaults/` so cross-repo jobs have system prompt without clawforge config in working tree
+- `target_repo` threaded from LangGraph tool schema → `create_job()` → `target.json` sidecar on clawforge job branch
+- Two-phase clone in entrypoint: clawforge checkout for metadata, target repo shallow clone as Claude's `WORK_DIR`; backward compatible (no target.json = v1.1 behavior)
+- Cross-repo PR creation with `clawforge/{uuid}` branch naming, default branch detection via `gh repo view`, and ClawForge attribution in PR body
+- Notification pipeline: nullable `target_repo` column in `job_outcomes`, webhook passthrough, `getJobStatus()` DB overlay returning completed job PR URLs
+
+---
+
