@@ -43,7 +43,7 @@
 
 **Milestone Goal:** Archie can create fully-configured ClawForge instances through a guided conversation, generating all instance files as a PR with an operator setup checklist.
 
-- [ ] **Phase 13: Tool Infrastructure** - Register `createInstanceJobTool` stub with Zod schema; install `yaml` dependency
+- [x] **Phase 13: Tool Infrastructure** - Register `createInstanceJobTool` stub with Zod schema; install `yaml` dependency (completed 2026-02-27)
 - [ ] **Phase 14: Intake Flow** - Teach Archie multi-turn instance creation intake via EVENT_HANDLER.md with approval gate and cancellation
 - [ ] **Phase 15: Job Prompt Completeness** - Build `buildInstanceJobDescription()` with instructions for all 7 artifacts, literal AGENT.md template, and semantic validation checklist
 - [ ] **Phase 16: PR Pipeline and Auto-Merge Exclusion** - Exclude `instances/` from auto-merge; confirm PR title convention and body delivery
@@ -124,7 +124,7 @@ Plans:
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | v1.2 | 3/3 | Complete | 2026-02-27 |
 | 11. Notification Pipeline + DB Schema | v1.2 | 3/3 | Complete | 2026-02-27 |
 | 12. Regression Verification | v1.2 | 1/1 | Complete | 2026-02-27 |
-| 13. Tool Infrastructure | v1.3 | 0/1 | Not started | - |
+| 13. Tool Infrastructure | 1/1 | Complete   | 2026-02-27 | - |
 | 14. Intake Flow | v1.3 | 0/TBD | Not started | - |
 | 15. Job Prompt Completeness | v1.3 | 0/TBD | Not started | - |
 | 16. PR Pipeline and Auto-Merge Exclusion | v1.3 | 0/TBD | Not started | - |
