@@ -60,24 +60,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTAKE-01 | — | Pending |
-| INTAKE-02 | — | Pending |
-| INTAKE-03 | — | Pending |
-| INTAKE-04 | — | Pending |
-| INTAKE-05 | — | Pending |
-| SCAF-01 | — | Pending |
-| SCAF-02 | — | Pending |
-| SCAF-03 | — | Pending |
-| SCAF-04 | — | Pending |
-| DELIV-01 | — | Pending |
-| DELIV-02 | — | Pending |
-| DELIV-03 | — | Pending |
+| INTAKE-01 | Phase 13 | Pending |
+| INTAKE-02 | Phase 14 | Pending |
+| INTAKE-03 | Phase 14 | Pending |
+| INTAKE-04 | Phase 14 | Pending |
+| INTAKE-05 | Phase 14 | Pending |
+| SCAF-01 | Phase 15 | Pending |
+| SCAF-02 | Phase 15 | Pending |
+| SCAF-03 | Phase 15 | Pending |
+| SCAF-04 | Phase 15 | Pending |
+| DELIV-01 | Phase 16 | Pending |
+| DELIV-02 | Phase 16 | Pending |
+| DELIV-03 | Phase 17 | Pending |
 
 **Coverage:**
-- v1.3 requirements: 13 total
-- Mapped to phases: 0
-- Unmapped: 13 ⚠️ (populated during roadmap creation)
+- v1.3 requirements: 12 total
+- Mapped to phases: 12
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after initial definition*
+*Last updated: 2026-02-27 — traceability populated after roadmap creation (Phases 13-17)*
