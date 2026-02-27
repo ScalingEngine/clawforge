@@ -48,6 +48,7 @@ Progress: [██████████░░░░░░░░░░] 46% (ph
 | Phase 10 P03 | 1 | 2 tasks | 1 files |
 | Phase 10 P02 | 2 | 2 tasks | 1 files |
 | Phase 11 P01 | 3 | 2 tasks | 5 files |
+| Phase 11 P02 | 3 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,7 @@ Recent decisions affecting v1.2 work:
 - [Phase 10]: Same-repo PR path wrapped in if [ -z TARGET_REPO_SLUG ] guard — v1.1 behavior fully preserved when no target.json present
 - [Phase 11]: Migration generated via drizzle-kit (not hand-written) to keep journal consistent
 - [Phase 11]: targetRepo stored as explicit null (not undefined) in .values() to avoid silent field drop
+- [Phase 11]: Dynamic import of sendMessage mirrors existing Slack WebClient pattern
 
 ### Pending Todos
 

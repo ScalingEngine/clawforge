@@ -35,9 +35,9 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### Notifications
 
-- [ ] **NOTIF-01**: Entrypoint sends completion webhook POST to Event Handler for cross-repo jobs
+- [x] **NOTIF-01**: Entrypoint sends completion webhook POST to Event Handler for cross-repo jobs
 - [x] **NOTIF-02**: job_outcomes table has nullable target_repo column recording which repo was targeted
-- [ ] **NOTIF-03**: Success notifications include correct target repo PR URL in Slack/Telegram messages
+- [x] **NOTIF-03**: Success notifications include correct target repo PR URL in Slack/Telegram messages
 - [ ] **NOTIF-04**: get_job_status tool returns target repo PR URL when available
 
 ### Regression Safety
@@ -94,9 +94,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PR-03 | Phase 10 | Complete |
 | PR-04 | Phase 10 | Complete |
 | PR-05 | Phase 10 | Complete |
-| NOTIF-01 | Phase 11 | Pending |
+| NOTIF-01 | Phase 11 | Complete |
 | NOTIF-02 | Phase 11 | Complete |
-| NOTIF-03 | Phase 11 | Pending |
+| NOTIF-03 | Phase 11 | Complete |
 | NOTIF-04 | Phase 11 | Pending |
 | REG-01 | Phase 12 | Pending |
 | REG-02 | Phase 12 | Pending |
