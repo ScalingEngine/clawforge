@@ -81,6 +81,11 @@ EOF
 
     WORK_DIR="/workspace"
     echo "Target repo cloned to /workspace. WORK_DIR=/workspace"
+
+    # Create clawforge/{uuid} branch in target repo before Claude runs (PR-05)
+    # All Claude's commits will land on this branch; pushed to remote in section 12b
+    git -C /workspace checkout -b "clawforge/${JOB_ID}"
+    echo "Created branch clawforge/${JOB_ID} in target repo"
 fi
 
 export TARGET_REPO_URL
