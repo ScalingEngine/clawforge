@@ -1,205 +1,189 @@
 # Project Research Summary
 
-**Project:** ClawForge v1.2 — Cross-Repo Job Targeting
-**Domain:** Claude Code agent gateway — GitHub Actions orchestration with multi-repo support
-**Researched:** 2026-02-25
+**Project:** ClawForge v1.3 — Instance Generator
+**Domain:** Multi-turn conversational intake + instance provisioning via Claude Code job
+**Researched:** 2026-02-27
 **Confidence:** HIGH
 
 ## Executive Summary
 
-ClawForge v1.2 fixes a confirmed silent failure bug: when a user asks the agent to work on a repo other than clawforge, the container has always cloned clawforge anyway (because `run-job.yml` hardcodes `REPO_URL = github.repository` — the workflow-owning repo), operated on the wrong codebase, and opened a PR against clawforge. The job reports success, but nothing lands in the target repo. The fix is a threading problem: `target_repo` must travel from the agent tool call, through job.md metadata, through the Actions workflow, and into the entrypoint — which then performs a two-phase clone (clawforge for config and metadata, target repo for actual work).
+ClawForge v1.3 adds a single capability to the existing system: Archie (the LangGraph ReAct agent) can create a fully-configured new ClawForge instance through a guided multi-turn Slack/Telegram/Web conversation. The operator provides a name, purpose, repos, and channel preferences; Archie gathers these across turns using its existing SQLite-persisted thread memory; the agent dispatches a Claude Code job that generates all instance files as a pull request. The research conclusion is unambiguous: almost no new infrastructure is needed. The existing `createReactAgent`, SQLite checkpointer, `createJob` mechanism, and Docker job pipeline handle the heavy lifting. The new work is one new tool (`createInstanceJobTool`), one helper module (`lib/tools/instance-job.js`), a 1-line change in `lib/ai/agent.js`, a new section in `instances/noah/config/EVENT_HANDLER.md`, and one new npm package.
 
-The recommended implementation requires no new npm dependencies and no new infrastructure. All five affected layers (agent tool schema, job creation, Actions workflow, entrypoint, notification pipeline) compose on existing patterns. The core approach: the clawforge job branch remains the Actions trigger and audit log carrier; a `target.json` sidecar file written alongside `job.md` carries machine-readable target repo metadata; the entrypoint reads this and conditionally performs a second clone; `gh pr create --repo owner/repo` targets the correct repo; and the entrypoint (not `notify-pr-complete.yml`) sends the completion webhook for cross-repo jobs because GitHub Actions workflows cannot observe events across repos.
+The recommended approach for multi-turn intake is instruction-driven slot filling via the system prompt, not a custom LangGraph StateGraph or `interrupt()` calls. The conversation history in the SQLite checkpointer is the intake state — the LLM reads what has been asked and answered at each turn. This pattern is already proven in production via the existing `create_job` approval gate. The only new npm dependency is `yaml@^2.8.2` for comment-preserving round-trip modification of `docker-compose.yml`. All template engines (Handlebars, EJS, Mustache) are CommonJS-only and incompatible with ClawForge's `"type": "module"` project; JavaScript template literals are the correct zero-dependency alternative.
 
-The highest-risk change is the entrypoint refactor — it is a bash script where incorrect conditional logic silently produces wrong behavior (cloning clawforge when target is intended, or vice versa). Same-repo regression must be gated before cross-repo work is considered done. The SOUL.md/AGENT.md system prompt sourcing is a blocking correctness issue: these files currently read from `/job/config/`, which works for same-repo jobs but produces an empty system prompt for cross-repo jobs where the target repo has no ClawForge config. They must be baked into the Docker image or injected via env var. Token security is the third risk: PATs must not be embedded in clone URLs as they appear in Actions logs; `gh auth setup-git` must be used for all clones.
+The critical risks are not architectural — they are correctness risks in generated file content. Generated configs that are syntactically valid but semantically broken (wrong Dockerfile COPY paths, incorrect REPOS.json owner slugs, malformed docker-compose service names, `$` characters in SOUL.md that shell-expand in the entrypoint) will fail silently during deployment rather than at PR creation time. The mitigations are: a strict structured JSON config payload from agent to job container, explicit validation instructions embedded in the job prompt, provision of literal file templates in the job prompt (especially AGENT.md, where tool name casing is critical), and exclusion of `instances/` paths from auto-merge so every instance scaffolding PR requires operator review before merge.
+
+---
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new npm packages or infrastructure are required. All v1.2 features compose on the existing stack: `zod` 4.3.6 (already installed) for `target_repo` enum validation in the tool schema, the existing `githubApi()` fetch wrapper for job branch and file creation, `gh` CLI 2.x (already in the Docker image) with `--repo OWNER/REPO` flag for cross-repo PR creation, and standard `git clone` for the second clone in the entrypoint.
-
-The key architectural constraint governing all implementation choices: the GitHub Actions `on: create` trigger fires only in the repo that owns the workflow (clawforge). Creating a job branch on the target repo would not trigger clawforge's `run-job.yml`. Therefore, the job branch must always live in clawforge, and `TARGET_REPO` must be conveyed through a `target.json` sidecar file rather than through the Actions trigger mechanism.
+The existing stack is unchanged. One new runtime dependency is justified: `yaml@^2.8.2` (ESM-native, comment-preserving) for `docker-compose.yml` modification. All template engine alternatives (`handlebars`, `ejs`, `mustache`, `js-yaml`) are disqualified by ESM incompatibility or comment-destructive serialization. JavaScript template literals with `fs.writeFileSync` handle file generation with zero new dependencies. The `createReactAgent` from `@langchain/langgraph/prebuilt` is deprecated in v1.x but functional in v1.1.4; migration to `createAgent` from the `langchain` package is flagged as a post-v1.3 task, not bundled into this milestone.
 
 **Core technologies:**
-- `zod` 4.3.6 (existing): `target_repo` parameter validation with `.refine()` against `ALLOWED_REPOS` list — already used in codebase
-- `githubApi()` in `lib/tools/github.js` (existing): extend with parameterized owner/repo for file writes — do not replace
-- `gh` CLI 2.x (existing in Docker image): `gh pr create --repo OWNER/REPO` for cross-repo PR creation — verified from official docs
-- `git clone` (existing): two sequential clones in one entrypoint; `gh auth setup-git` handles auth for both without token-in-URL
-- `GH_TOKEN` PAT (existing, scope update required): single fine-grained PAT with `contents: write` + `pull_requests: write` on all allowed repos; no new secret keys
+- `@langchain/langgraph@^1.1.4`: ReAct agent orchestration — existing, no change
+- `@langchain/langgraph-checkpoint-sqlite@^1.0.1`: Thread-scoped multi-turn memory — existing, no change; conversation history IS the intake state
+- `zod@^4.3.6`: Tool schema validation for structured instance config handoff — existing, provides the Zod object that defines the config contract between intake and job
+- `yaml@^2.8.2`: Round-trip YAML modification with comment preservation — the only new dependency; required to preserve the commented TLS/HTTPS blocks in `templates/docker-compose.yml` that operators uncomment for production
+- JavaScript template literals + `fs.writeFileSync`: Zero-dependency file generation for instance scaffolding — correct approach for ESM `"type": "module"` project
 
 ### Expected Features
 
-The five surfaces that must work together for v1.2 to be usable — failure in any one produces silent wrong behavior end-to-end.
+The feature research confirms a tightly scoped MVP. The agent handles conversational intake and approval gating; the Claude Code job handles all file generation. There is no feature in v1.3 that requires new database tables, new GitHub Actions workflows, new Docker images, or changes to the job container entrypoint.
 
-**Must have (table stakes — v1.2 launch blockers):**
-- `ALLOWED_REPOS` config per instance (`config/REPOS.json` with per-instance override) — agent needs canonical list to select from; used for both tool validation and system prompt injection
-- `create_job` tool: optional `target_repo` parameter (Zod-validated against allowed list) — load-bearing change; all downstream components depend on this being present
-- `target.json` sidecar written to clawforge job branch alongside `job.md` — only reliable channel to carry `TARGET_REPO` into the container given the `on: create` trigger constraint
-- `run-job.yml`: resolve-target step reads `target.json`, injects `TARGET_REPO_URL` into docker run — bridges the Actions layer to container without changing trigger mechanism
-- Entrypoint: two-phase clone (`/job-meta` for clawforge config/metadata, `/job` for target repo work) with symlink fallback for same-repo jobs
-- SOUL.md/AGENT.md baked into Docker image (`/defaults/`) or injected via env var — blocking correctness issue; without this, cross-repo jobs run with empty system prompt
-- `gh pr create --repo TARGET_OWNER/TARGET_REPO` in entrypoint for cross-repo PRs
-- Entrypoint-side completion webhook POST for cross-repo jobs — `notify-pr-complete.yml` fires on `auto-merge.yml` completion which only happens for clawforge PRs; cross-repo notifications must come from the entrypoint directly
-- Same-repo regression guard: absence of `TARGET_REPO_URL` (or equality with `REPO_URL`) falls through to existing logic unchanged
-- Fine-grained PAT updated with target repo access (operator action, not code change)
-- Clone failure captured as explicit failure stage (`clone-error.md`) rather than silently swallowed by `|| true`
+**Must have (table stakes):**
+- Intent detection — EVENT_HANDLER.md section teaches Archie to recognize "create an instance" from natural language; no code changes to agent loop
+- Multi-turn intake — agent collects: instance name/slug, agent purpose, allowed repos, enabled channels (Slack/Telegram/Web); 3-4 turns max, not one-question-per-turn
+- Confirmation before dispatch — agent presents gathered config summary and waits for explicit operator approval; same pattern as existing `create_job` approval gate
+- Claude Code job: generate 6 instance files — Dockerfile, SOUL.md, AGENT.md, EVENT_HANDLER.md, REPOS.json, .env.example under `instances/{name}/`
+- Claude Code job: update `docker-compose.yml` — new service block, network, volumes appended following existing pattern
+- Claude Code job: update `.env.example` — new instance section with prefixed env vars
+- Claude Code job: instance-specific operator setup checklist in PR body
 
-**Should have (v1.2.x — after 3+ cross-repo jobs confirmed working):**
-- `get_job_status` tool returns target repo PR URL (requires nullable `target_repo TEXT` column in `job_outcomes`)
-- PR body with ClawForge attribution and job ID — makes PRs readable to target repo maintainers
-- Per-target-repo merge policy in `ALLOWED_REPOS` config (`auto_merge: true/false`) — enables entrypoint to auto-merge if configured; today cross-repo PRs always stay open
+**Should have (competitive — natural Claude Code behavior, low cost):**
+- SOUL.md and AGENT.md scoped to stated purpose — LLM-authored content calibrated to the operator's description, not generic boilerplate
+- EVENT_HANDLER.md for generated instance scoped to its allowed repos and channels only
+- Setup checklist is instance-specific (exact secret names with correct prefix, exact scopes, exact commands)
+- Agent captures optional fields if volunteered (Slack user IDs, Telegram chat ID) without requiring a separate question
 
 **Defer (v2+):**
-- Multi-repo fan-out jobs (one job touching multiple repos) — requires transaction model, no infrastructure exists
-- GitHub App tokens replacing PATs — not justified for 2 instances, 1 org
-- Dynamic allowed repo discovery via GitHub API — security risk, no UX benefit at current scale
+- Instance update/deletion via conversation — requires a safe model for modifying live config; out of scope for v1.3
+- Automated GitHub secrets provisioning — security risk; requires elevated permissions beyond current scope; intentionally excluded
+- Automated Slack app creation — not possible via Slack API (platform limitation); revisit if Slack adds programmatic support
+- Instance health dashboard — requires additional job_outcomes aggregation
 
 ### Architecture Approach
 
-The architecture is a threaded metadata pipeline. Each layer has exactly one integration point where `target_repo` is either read or written. The clawforge repo remains the single orchestration hub: job branches always live there (to trigger Actions), audit logs always commit there, and config files always read from there. The target repo is touched only inside the Docker container — never by the Event Handler or the Actions workflow steps.
+The v1.3 architecture is additive, not structural. The Event Handler (LangGraph agent) owns conversational intake and approval gating. The Claude Code job container owns all file generation, YAML modification, and PR creation. Component boundaries are clear: the agent passes a structured JSON config block to the job via `job.md`; the job reads the JSON and generates deterministic file content. The same-repo PR pipeline (more reliable than the cross-repo path from v1.2) handles delivery. No new state machine, no new graph structure, no custom StateGraph, no new DB tables, no changes to GitHub Actions workflows or the Docker job image.
 
-**Major components and v1.2 changes:**
-1. `config/REPOS.json` (NEW) — per-instance allowed repos list with owner, repo, description; base fallback + per-instance override in `instances/{name}/config/REPOS.json`
-2. `lib/ai/tools.js` (MODIFY) — add optional `target_repo` param to `create_job` schema; validate against REPOS.json allowlist
-3. `lib/tools/create-job.js` (MODIFY) — write `target.json` to clawforge job branch when target repo is specified; branch creation always stays in clawforge
-4. `templates/.github/workflows/run-job.yml` (MODIFY) — add resolve-target step: checkout job branch, read `target.json`, inject `TARGET_REPO_URL` and cross-repo flag into docker run
-5. `templates/docker/job/entrypoint.sh` (MODIFY) — two-phase clone; config reads from `/job-meta`; work in `/job`; cross-repo PR via `--repo` flag; cross-repo notification via direct webhook POST to Event Handler
-6. `lib/db/schema.js` + `lib/db/job-outcomes.js` (MODIFY) — add nullable `target_repo TEXT` column; include in saveJobOutcome
-7. `api/index.js` (MODIFY) — extract `target_repo` from webhook payload; include in summarizeJob message
-8. `instances/*/config/EVENT_HANDLER.md` (MODIFY) — add allowed repos section so agent can resolve natural language to repo slugs
-
-**Key notification architecture decision:** `notify-pr-complete.yml` fires on `workflow_run` (auto-merge completion in clawforge). For cross-repo jobs, no PR exists in clawforge, so auto-merge never fires, so `notify-pr-complete.yml` never fires. The entrypoint must send the completion webhook directly after `gh pr create`. This creates a semantic difference: same-repo notifications fire at merge, cross-repo notifications fire at PR creation. The user sees "PR open for review" rather than "merged" for cross-repo jobs unless `auto_merge: true` is configured in the target repo's REPOS.json entry.
+**Major components:**
+1. `createInstanceJobTool` (lib/ai/tools.js) — new tool accepting structured `instanceConfig` Zod schema; builds job description via `buildInstanceJobDescription()`; calls existing `createJob()` function unchanged; registered with 1-line change in `lib/ai/agent.js`
+2. `buildInstanceJobDescription()` (lib/tools/instance-job.js) — new helper that serializes the validated config as a JSON block embedded in a structured job.md prompt, with explicit file-generation instructions for each of the 7 output artifacts; includes literal AGENT.md template and validation checklist
+3. EVENT_HANDLER.md intake section (instances/noah/config/EVENT_HANDLER.md) — instruction-driven slot filling: detect intent, ask for fields in groups of 2-3, present summary, gate on approval, call `create_instance_job`; includes cancellation handling
 
 ### Critical Pitfalls
 
-1. **SOUL.md/AGENT.md absent for cross-repo jobs** — The entrypoint reads system prompt files from `/job/config/`. For cross-repo jobs, `/job` is the target repo with no ClawForge config structure. Result: empty system prompt, Claude runs without persona or GSD instructions. Fix: bake SOUL.md/AGENT.md into Docker image as `/defaults/`; entrypoint always loads from image with optional override if cloned repo has them. Blocking correctness issue that must ship in Phase 1.
+1. **Agent singleton corrupts in-flight conversations when a new tool is added mid-session** — LangGraph `createReactAgent` compiles tool list at startup; existing SQLite checkpoints reference tools by name; adding a tool after live conversations begin causes checkpoint replay to fail. Fix: add `createInstanceJobTool` to the tools array from the first commit as a stub, even before the tool body is complete. Never add tools to a live agent without a full server restart.
 
-2. **`|| true` on git push and gh pr create silently swallows auth failures** — If the PAT lacks target repo access, clone or push fails silently. Container exits without writing `preflight.md`; failure stage in notification is wrong or absent. Fix: add explicit exit code tracking around all clone/push/PR-create operations; add `clone` and `push_failed` as new failure stages alongside existing `docker_pull` / `auth` / `claude`.
+2. **Generated configs are syntactically valid but semantically broken** — Dockerfile COPY paths are case-sensitive (instance name must be lowercase in all paths); REPOS.json `owner` must be exact GitHub org slug (not display name); docker-compose service names must be lowercase-hyphenated; SOUL.md content with `$` characters shell-expands via `echo -e "$SYSTEM_PROMPT"` in the entrypoint. Fix: embed explicit post-generation validation instructions in the job prompt; use structured JSON config block (not prose) so the container agent uses exact values verbatim.
 
-3. **`notify-pr-complete.yml` never fires for cross-repo jobs** — GitHub Actions `workflow_run` can only observe events in the same repo. A PR merge in NeuroStory does not trigger any workflow in clawforge. Fix: entrypoint sends completion webhook directly after `gh pr create` for cross-repo jobs. Installing ClawForge workflows in target repos is rejected as creating tight coupling that breaks instance isolation.
+3. **Generated AGENT.md with wrong tool name casing causes silent Claude Code job failure** — `--allowedTools` is case-sensitive; `read` instead of `Read` causes Claude Code to run with no tools, producing empty job output. Fix: provide the exact AGENT.md content as a literal template in the job prompt, not as an instruction to "write something similar to noah."
 
-4. **Token embedded in clone URLs leaks to Actions logs** — Developers extending the entrypoint may embed the PAT in the clone URL (`https://x-access-token:${GH_TOKEN}@github.com/...`). This prints the token to stdout, captured by GitHub Actions logs — exposed publicly for public repos. Fix: always use `gh auth setup-git` before any git clone; never interpolate PAT into URL strings.
+4. **docker-compose.yml merge conflicts when multiple instance PRs are in flight** — Single shared file; concurrent PRs both modifying it conflict. Fix: job prompt must append new service at end of `services:` block (not inline); PR checklist must require `docker compose config` before merge; instance PRs excluded from auto-merge.
 
-5. **Same-repo regression from entrypoint conditional logic** — The cross-repo/same-repo conditional in bash is error-prone. A wrong variable name or missing fallback causes same-repo jobs to clone the wrong repo, fail to read job.md, or produce malformed FULL_PROMPT. Fix: run same-repo test harness before and after entrypoint changes; gate phase completion on same-repo test passing.
+5. **Incomplete intake abandonment leaves dangling state that contaminates later conversations** — LangGraph thread history persists indefinitely; if operator says "never mind" mid-intake, the next unrelated message on the same thread may resume intake context. Fix: define explicit cancellation phrases in EVENT_HANDLER.md; validate all required fields in `createInstanceJobTool` before dispatching; instance name must match `^[a-z][a-z0-9-]{0,18}[a-z0-9]$` (validates at intake time, not just at job dispatch).
+
+---
 
 ## Implications for Roadmap
 
-Research identifies a clear 4-phase build order based on strict dependency flow. Each phase delivers what the next phase depends on. No parallel execution — the chain is sequential.
+The research points to a 5-phase build order with strict dependencies. Tool schema must exist before intake can be written against it. Intake must be validated before the job prompt is refined. Job prompt must be complete before end-to-end execution is tested. Phases 1 and 2 can be worked in parallel (tool definition and intake instructions are independent); Phases 3-5 are sequential.
 
-### Phase 1: Config Layer + Tool Schema + Entrypoint Foundation
+### Phase 1: Tool Infrastructure
 
-**Rationale:** Everything else depends on `target_repo` being threaded through the system. The tool schema change is the load-bearing change — no downstream component can be built without it. The entrypoint clone fix and SOUL.md sourcing fix must ship together because both are correctness blockers that affect every cross-repo job.
+**Rationale:** The `createInstanceJobTool` Zod schema is the single source of truth for all downstream work — intake questions map to its required fields, the job prompt serializes its output, and the PR checklist reflects its structure. Defining this schema first prevents drift between intake design and job execution. Critically, the tool must be registered in the agent's tools array from the first commit (even as a stub) to avoid the checkpoint corruption pitfall.
+**Delivers:** `lib/tools/instance-job.js` with `buildInstanceJobDescription()` skeleton, `createInstanceJobTool` registered in `lib/ai/tools.js` and `lib/ai/agent.js`, `npm install yaml@^2.8.2`
+**Addresses:** Structured config handoff (Zod schema defines the payload contract); tool registered before any live conversation
+**Avoids:** Pitfall 1 (agent singleton corruption from mid-session tool addition), Pitfall 2 (unstructured free-text config handoff)
 
-**Delivers:** Agent can accept and validate `target_repo`; job creation writes `target.json` to clawforge job branch; entrypoint performs two-phase clone and reads config from correct location; SOUL.md/AGENT.md loaded from Docker image for all jobs; same-repo jobs unaffected by any change.
+### Phase 2: Intake Flow and Agent Instructions
 
-**Addresses (from FEATURES.md):** Allowed repos config (formal), `create_job` tool with `target_repo` field, `target.json` sidecar file, same-repo regression guard, SOUL.md/AGENT.md sourcing fix, clone failure as fourth failure stage.
+**Rationale:** With the tool schema defined, the EVENT_HANDLER.md intake section can be written against concrete field names. This phase also establishes the cancellation handling and name validation that prevent abandoned intakes from producing phantom jobs or broken instance names.
+**Delivers:** Updated `instances/noah/config/EVENT_HANDLER.md` with instance creation section — intent detection, field grouping strategy (3-4 turns max, not one-field-per-turn), cancellation handling, approval gate, post-dispatch conversation reset marker injected into thread
+**Avoids:** Pitfall 3 (context window bloat — conversation reset marker injected after dispatch signals future turns to ignore prior intake messages), Pitfall 5 (incomplete intake abandonment — cancellation handling and required field gate), Pitfall 8 (instance name collision — name validated as `^[a-z][a-z0-9-]{0,18}[a-z0-9]$` before dispatch)
 
-**Avoids (from PITFALLS.md):** Pitfall 10 (empty system prompt for cross-repo), Pitfall 6 (same-repo regression), Pitfall 1 (entrypoint clones wrong repo), Pitfall 11 (token in clone URL), Pitfall 7 (createJob() misunderstood as needing to change target).
+### Phase 3: Job Prompt Completeness
 
-**Files changed:** `config/REPOS.json` (new), `instances/*/config/REPOS.json` (new), `lib/ai/tools.js`, `lib/tools/create-job.js`, `instances/*/config/EVENT_HANDLER.md`, `templates/docker/job/Dockerfile` (bake SOUL.md), `templates/docker/job/entrypoint.sh` (two-phase clone, config from /job-meta, SOUL.md from image).
+**Rationale:** The job prompt (`buildInstanceJobDescription()` output) is what Claude Code executes. This phase refines it based on what Phase 2 reveals about intake conversation patterns, then adds explicit post-generation validation instructions, the literal AGENT.md template, semantic validation checklist, and docker-compose append-at-end strategy. This is the highest-effort phase.
+**Delivers:** Refined `buildInstanceJobDescription()` with complete file-generation instructions for all 7 artifacts, literal AGENT.md template embed, semantic validation checklist (Dockerfile paths, REPOS.json schema, SOUL.md shell safety, docker-compose service name format), `yaml@^2.8.2` usage for docker-compose modification, PR body generation with instance-specific values
+**Uses:** `yaml@^2.8.2` — `parseDocument()` + `addIn()` for comment-preserving docker-compose modification
+**Avoids:** Pitfall 4 (semantically broken generated configs), Pitfall 6 (docker-compose merge conflicts — append-at-end strategy), Pitfall 7 (wrong AGENT.md tool name format — literal template in job prompt)
 
-**Research flag:** SKIP — all implementation details fully specified in STACK.md and ARCHITECTURE.md with direct codebase inspection. Standard patterns throughout.
+### Phase 4: PR Pipeline and Auto-Merge Exclusion
 
-### Phase 2: Actions Workflow + Cross-Repo PR Creation
+**Rationale:** Instance scaffolding PRs must not auto-merge — broken instance configs must be reviewed before they reach `main`. This is a short phase but must be completed before end-to-end testing to prevent a test PR from auto-merging. The PR title convention also needs to be set so instance PRs are identifiable in the PR list.
+**Delivers:** `auto-merge.yml` updated to exclude `instances/` path from ALLOWED_PATHS; verified PR title convention (`feat(instances): add {name} instance`); `--body-file` or `--body` approach confirmed against entrypoint.sh implementation
+**Avoids:** Security risk (auto-merge on broken instance scaffolding PR), Pitfall 6 (compose validation step in PR checklist)
 
-**Rationale:** Depends on Phase 1 producing `target.json` in job branches. This phase makes the container actually operate in the target repo and create a PR there. It is the highest-risk phase because it involves bash conditional logic in the entrypoint and the `gh pr create --repo` behavior. Build on a stable Phase 1 foundation.
+### Phase 5: End-to-End Validation
 
-**Delivers:** Container clones target repo, Claude operates in correct working tree, PR created on target repo, default branch detected (not hardcoded to `main`), branch naming convention set for target repos, per-repo merge policy implemented.
-
-**Implements:** `run-job.yml` resolve-target step, entrypoint cross-repo push + `gh pr create --repo`, default branch detection via `gh repo view --json defaultBranchRef`, branch cleanup after PR creation, per-repo merge policy from REPOS.json.
-
-**Avoids (from PITFALLS.md):** Pitfall 3 (PR on wrong repo), Pitfall 2 (PAT scope not confirmed before clone), Pitfall 5 (auto-merge not applicable to cross-repo — handle via entrypoint merge if configured), Pitfall 9 (branch pollution in target repo).
-
-**Research flag:** SKIP — `gh pr create --repo` flag verified against official gh CLI docs (HIGH confidence). Default branch detection via `gh repo view` is documented. No novel patterns.
-
-### Phase 3: Notification Pipeline + DB Schema
-
-**Rationale:** Depends on Phase 2 producing PRs in target repos. The notification gap (`notify-pr-complete.yml` never fires for cross-repo) cannot be addressed until cross-repo PRs exist to reference. DB schema change is small and should ship with notifications so `target_repo` is recorded from day one of cross-repo jobs running.
-
-**Delivers:** Cross-repo job completions trigger Slack/Telegram notifications via entrypoint webhook POST; `job_outcomes` table records `target_repo`; `summarizeJob` message identifies which repo was modified and whether the PR is open for review or merged.
-
-**Implements:** Entrypoint cross-repo notification POST to `/api/github/webhook` with correct payload schema, nullable `target_repo TEXT` column in `job_outcomes`, `saveJobOutcome` update, `api/index.js` webhook handler update, Drizzle migration.
-
-**Avoids (from PITFALLS.md):** Pitfall 4 (notification never fires for cross-repo), Pitfall 8 (wrong thread routing or missing job_outcomes record), Anti-pattern 4 (modifying notify-pr-complete.yml to watch external repos).
-
-**Research flag:** SKIP — notification schema and entrypoint webhook POST pattern fully specified in ARCHITECTURE.md Pattern 3.
-
-### Phase 4: Regression Verification
-
-**Rationale:** After all changes are deployed, both instances must be verified end-to-end. This is not optional cleanup — the "Looks Done But Isn't" checklist in PITFALLS.md identifies 10 specific verification points that silent-failure scenarios require. Same-repo jobs must continue working correctly.
-
-**Delivers:** Confirmed same-repo regression-free behavior; at least one cross-repo job per instance completed successfully; ALLOWED_REPOS enforcement verified (unauthorized repo rejected before job creation); token security confirmed (no PAT in Actions logs); `get_job_status` unaffected.
-
-**Addresses (from FEATURES.md):** Same-repo regression test, PAT updated with cross-repo scopes (operator), ALLOWED_REPOS enforcement verification.
-
-**Research flag:** SKIP — verification against the 10-point checklist in PITFALLS.md covers all scenarios.
+**Rationale:** Full integration proof. Run a real multi-turn conversation through Slack, approve the gathered config, receive the PR, execute the "looks done but isn't" checklist from PITFALLS.md against the generated files, run `docker compose config`, and confirm the new instance builds. All prior phases are unit-level; this phase is the acceptance gate.
+**Delivers:** A verified test instance provisioned end-to-end via Archie; all 10 items from PITFALLS.md verification checklist executed; any job prompt refinements from real execution fed back to Phase 3 artifacts; PR closed (not merged) unless the test instance is intentional
+**Uses:** All components from Phases 1-4; real Slack/Telegram channel; real GitHub Actions → Docker → PR pipeline
 
 ### Phase Ordering Rationale
 
-- **Config and schema before container:** `target.json` must exist in job branches before `run-job.yml` can read it. Tool schema must change before any job can carry target repo metadata.
-- **Container before notifications:** Cross-repo PR must exist in target repo before notification can reference its URL.
-- **System prompt fix in Phase 1 (not Phase 2):** SOUL.md sourcing is a correctness blocker, not an enhancement. If it shipped after Phase 2 opened cross-repo PRs, all those PRs would have been generated by Claude running without persona or GSD instructions.
-- **Regression sweep throughout + final gate in Phase 4:** Same-repo behavior must be continuously validated in Phases 1-3, with a comprehensive final verification in Phase 4.
+- Tool schema first because the Zod object in `createInstanceJobTool` is the contract between intake (Phase 2) and job execution (Phase 3). Building intake before the schema exists guarantees drift.
+- Phases 1 and 2 are independent and can be developed in parallel if two developers are available. Phase 1 is a prerequisite for Phase 3; Phase 2 informs Phase 3 but does not block starting it.
+- Job prompt after intake because Phase 2 reveals which field names, question groupings, and edge cases produce clean operator input — the job prompt in Phase 3 is refined against that reality.
+- Auto-merge exclusion (Phase 4) is separated to prevent it from being forgotten when it's most at risk: just before end-to-end testing when real PRs start landing.
+- End-to-end last because it requires all prior components in place and requires real execution against the live GitHub Actions pipeline.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **None identified.** All four research files are based on direct codebase inspection (HIGH confidence) and official GitHub/gh CLI documentation. The implementation is fully specified at the code level. No novel technology, sparse documentation, or uncharted integration patterns.
+Phases with standard patterns (no additional research needed):
+- **Phase 1 (Tool Infrastructure):** Mirrors `createJobTool` exactly; `yaml` package API is clearly documented with official examples; no novel patterns
+- **Phase 2 (Intake Flow):** Instruction-driven slot filling is proven in the existing EVENT_HANDLER.md approval gate; no new LangGraph patterns
+- **Phase 4 (Auto-merge exclusion):** Simple YAML edit to existing workflow; no research needed
 
-Phases with standard patterns (skip research-phase):
-- **All four phases.** The implementation pattern (sidecar metadata file, two-phase clone, `gh` CLI cross-repo flags, webhook notification from container, Zod enum validation) is thoroughly documented in STACK.md and ARCHITECTURE.md with verified examples from direct codebase inspection.
+Phases that may benefit from targeted review during planning:
+- **Phase 3 (Job Prompt Completeness):** The exact prompt structure for Claude Code to generate 7 files correctly from a JSON config block may need iteration. Recommend a sample `job.md` dry-run review before treating this phase as complete. The `yaml` package's `parseDocument()` + `addIn()` API for docker-compose modification warrants a focused test against the actual `docker-compose.yml` (nested structure, Traefik command arrays) before including in the job prompt.
+- **Phase 5 (End-to-End Validation):** The 10-item "looks done but isn't" checklist from PITFALLS.md should be the formal acceptance criteria. Decide upfront whether the test instance PR will be merged or closed — if merged, it creates a `instances/test-alpha/` directory that needs cleanup tracking.
+
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All findings from direct codebase inspection + official GitHub REST API and gh CLI docs. No new dependencies. Implementation examples verified against live code. All version compatibility confirmed. |
-| Features | HIGH | Pipeline mechanics verified against live code. UX patterns informed by analog system analysis (GitHub Actions native, Buildkite, Devin/SWE-agent). Security/token scoping from official GitHub docs + community confirmation. |
-| Architecture | HIGH | Line-level codebase inspection for all affected files. Component responsibilities and data flow verified against live production code. Anti-patterns confirmed with specific file/line references. Build order grounded in verified dependency relationships. |
-| Pitfalls | HIGH (primary) / MEDIUM (secondary) | Primary pitfalls from direct codebase inspection — root causes confirmed line-by-line. GITHUB_TOKEN scoping from official docs + confirmed community discussions. Security exposure patterns from CVE research (flagged as LOW confidence, not blocking). |
+| Stack | HIGH | One new dependency (`yaml@^2.8.2`); all others are existing and production-validated. ESM incompatibility of all template engine alternatives confirmed against official npm packages and package source. LangGraph deprecation warning on `createReactAgent` confirmed from official issue #1602 and migration guide. |
+| Features | HIGH | Feature scope derived from direct codebase inspection of production instances (noah, strategyES) and the existing job pipeline. MVP is minimal and well-bounded. Anti-features are explicitly justified with specific reasons (Slack API limitation, security blast radius, etc.). |
+| Architecture | HIGH | All major architectural decisions (no custom StateGraph, same-repo job, instruction-driven intake, structured JSON config payload, literal AGENT.md template in job prompt) are validated against direct codebase analysis of the production system. One medium-confidence point: `createReactAgent` + custom stateSchema incompatibility inferred from GitHub issue #803 rather than current official docs (docs returned redirects during research). |
+| Pitfalls | HIGH (codebase-based) / MEDIUM (LangGraph-specific) | Primary pitfalls grounded in direct codebase inspection: entrypoint.sh `echo -e "$SYSTEM_PROMPT"` shell expansion (confirmed line 156), agent singleton pattern in agent.js, monolithic docker-compose.yml structure. LangGraph context window bloat and checkpoint format stability pitfalls are from official LangGraph persistence docs and confirmed community patterns but not empirically measured in this codebase. |
 
-**Overall confidence: HIGH**
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Fine-grained PAT configuration:** The existing `AGENT_GH_TOKEN` is likely a classic PAT. For v1.2, a fine-grained PAT scoped to allowed repos is recommended. This is an operator action — but must be documented clearly in `.env.example` for both instances before any cross-repo job runs. If a classic PAT with org-wide access is used instead, cross-repo operations will work but with elevated security exposure (documented tradeoff in STACK.md Alternatives section).
+- **`createReactAgent` + custom stateSchema incompatibility (GitHub issue #803):** The recommendation to avoid a custom StateGraph is directionally correct and consistent with all research, but confirm the incompatibility persists in `@langchain/langgraph@1.1.4` specifically before treating it as a hard constraint. If it turns out custom state is possible, the architecture remains valid — instruction-driven intake is still the simpler approach.
 
-- **Default branch assumption:** All implementation examples assume `main` as the default branch of target repos. PITFALLS.md flags `--base main` as a hardcoded assumption that breaks for repos with `master` or other default branches. Add default branch detection via `gh repo view --json defaultBranchRef` in Phase 2 — do not defer this as known debt since it causes silent PR creation failure.
+- **PR body via `--body-file` convention:** FEATURES.md notes that the Claude Code job must write the PR checklist to a file (e.g., `pr-checklist.md`) for entrypoint's `gh pr create --body-file` flag. Confirm whether entrypoint.sh supports `--body-file` or uses `--body "$(cat ...)"` inline — this affects the job prompt instructions for how Claude Code should write the checklist file.
 
-- **StrategyES instance allowed repos:** StrategyES currently targets `strategyes-lab` repo only. Its `REPOS.json` content needs operator confirmation before Phase 1 ships. The architecture supports this via per-instance `instances/strategyES/config/REPOS.json` override, but the specific repo list must be set by the operator.
+- **Message trimming threshold:** PITFALLS.md recommends a 30-message or 40k-token trim threshold to prevent context window bloat, but ClawForge has no message trimmer currently. The right threshold for instance creation threads (8-12 messages) vs. ongoing job threads is not empirically determined. Implement conservatively and monitor `data/clawforge.sqlite` size after first 3 instance creation conversations.
 
-- **Cross-repo merge semantics communication:** Same-repo jobs notify at merge; cross-repo jobs notify at PR creation (unless `auto_merge: true` is configured). This semantic difference must be surfaced clearly to the user in the agent's confirmation message. Validate the UX language during Phase 3 to ensure users understand "PR open for review" vs "merged."
+- **`createAgent` migration timing:** `createReactAgent` shows deprecation warnings in v1.1.4 and is removed in v2.0 alpha. Flag as a named post-v1.3 task. Do not adopt any `@langchain/langgraph@next` or v2 alpha builds during v1.3 development — `createReactAgent` import breaks on v2.
+
+---
 
 ## Sources
 
-### Primary (HIGH confidence — direct codebase inspection)
+### Primary (HIGH confidence)
+- Direct codebase inspection: `lib/ai/agent.js` — agent singleton pattern (`_agent`), `resetAgent()`, tools array, no message trimmer configured
+- Direct codebase inspection: `lib/ai/tools.js` — `createJobTool` schema (job_description only), `detectPlatform()`, Zod + `tool()` pattern to mirror
+- Direct codebase inspection: `lib/ai/index.js` — `chat()` append-only invocation, `addToThread()` state injection, no message trimming
+- Direct codebase inspection: `templates/docker/job/entrypoint.sh` — `echo -e "$SYSTEM_PROMPT"` at line 156 (shell expansion risk), `ALLOWED_TOOLS` format, `--append-system-prompt` flag
+- Direct codebase inspection: `docker-compose.yml` — monolithic file, commented TLS blocks requiring comment preservation, service/network/volume naming convention
+- Direct codebase inspection: `instances/noah/Dockerfile` — `COPY instances/noah/config/` paths (case-sensitive), canonical scaffold baseline
+- Direct codebase inspection: `instances/noah/config/REPOS.json` — exact schema required for generated REPOS.json
+- Direct codebase inspection: `instances/noah/config/EVENT_HANDLER.md` — existing approval gate pattern ("CRITICAL: NEVER call create_job without explicit user approval")
+- [LangGraph V1 Alpha issue #1602](https://github.com/langchain-ai/langgraphjs/issues/1602) — `createReactAgent` deprecated, moved to `langchain` package, `createAgent` migration path
+- [LangGraph v1 migration guide](https://docs.langchain.com/oss/javascript/migrate/langgraph-v1) — breaking changes, Node.js 20+ requirement, `prompt` → `systemPrompt` rename
+- [yaml package GitHub: eemeli/yaml](https://github.com/eemeli/yaml) — v2.8.2 (Nov 30, 2025), comment preservation documented, ESM-native, `parseDocument()` + `addIn()` API
 
-- `templates/docker/job/entrypoint.sh` — single-clone flow, SOUL.md/AGENT.md sourcing (confirmed reads from /job/config/), CLAUDE.md injection, PR creation without `--repo` flag
-- `templates/.github/workflows/run-job.yml` — `REPO_URL` hardcoded to `github.repository`; no target repo mechanism
-- `templates/.github/workflows/notify-pr-complete.yml` — `workflow_run` trigger on auto-merge (same-repo only); `--repo github.repository` scope for all PR lookups
-- `templates/.github/workflows/auto-merge.yml` — `GITHUB_TOKEN` used; clawforge-scoped only; `ALLOWED_PATHS` guard specific to clawforge
-- `lib/tools/create-job.js` — `GH_OWNER`/`GH_REPO` always clawforge; branch and job.md creation pattern
-- `lib/ai/tools.js` — `create_job` schema (job_description only; confirmed no target_repo parameter)
-- `lib/db/schema.js` + `lib/db/job-outcomes.js` — jobOutcomes table schema; confirmed no target_repo column
-- `api/index.js` — webhook handler; saveJobOutcome call; results object shape
-- `.planning/PROJECT.md` — cross-repo bug discovery 2026-02-25; v1.2 requirements; NeuroStory example
+### Secondary (MEDIUM confidence)
+- [LangGraph JS Persistence Docs](https://langchain-ai.github.io/langgraphjs/concepts/persistence/) — checkpoint-per-step behavior, full state snapshot (not delta) written at each node; confirmed no automatic pruning
+- [LangGraph interrupt docs](https://docs.langchain.com/oss/javascript/langgraph/interrupts) — `interrupt()` + `Command` resume model requires single long-running invocation; incompatible with ClawForge per-message invocation model
+- [LangGraph createReactAgent + custom stateSchema issue #803](https://github.com/langchain-ai/langgraphjs/issues/803) — incompatibility between `createReactAgent` and custom `stateSchema` types
+- [LangGraph Breaking Change: langgraph-prebuilt 1.0.2](https://github.com/langchain-ai/langgraph/issues/6363) — minor version upgrades can break checkpoints; confirms pinning `@langchain/*` to exact versions
+- [Docker Compose `include:` directive docs](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/) — modular compose strategy for conflict mitigation (requires Compose v2.20+)
+- Creating Task-Oriented Dialog systems with LangGraph and LangChain (Medium) — slot filling via conversation history as state
+- [Conversational AI Design in 2025 (Botpress)](https://botpress.com/blog/conversation-design) — one question at a time, progressive disclosure, confirmation before action
 
-### Secondary (MEDIUM confidence — official docs + community confirmation)
-
-- `https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28` — `on: create` trigger only fires in repo owning workflow; cross-repo branch push does not trigger foreign repo workflows
-- `https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28` — Git refs API; same endpoints work with different owner/repo path params
-- `https://cli.github.com/manual/gh_pr_create` — `--repo OWNER/REPO` flag confirmed for cross-repo PR creation; stable since gh 2.0
-- `https://docs.github.com/en/actions/security-guides/automatic-token-authentication` — GITHUB_TOKEN is repo-scoped; cross-repo operations require PAT or GitHub App token
-- `https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens` — fine-grained PAT: `contents: write` + `pull_requests: write` required for clone + PR
-- GitHub Community discussions (orgs/community/discussions/46566, 65321, 59488) — GITHUB_TOKEN cross-repo clone limitation confirmed; PAT required for cross-repo checkout
-- `https://some-natalie.dev/blog/multi-repo-actions/` — cross-repo push pattern with PAT; token not in URL; confirmed pattern
-
-### Tertiary (LOW confidence — single source, security awareness)
-
-- Wiz Blog: tj-actions supply chain attack CVE-2025-30066 — token-in-URL exposure via workflow logs; informs anti-pattern
-- Unit42 Palo Alto: ArtiPACKED — token exposure patterns in GitHub Actions artifacts; general awareness for log hygiene
+### Tertiary (LOW confidence)
+- [NeurIPS 2025: Why Multi-Agent LLM Systems Fail](https://arxiv.org/pdf/2503.13657) — conflicting state updates, multi-agent failure patterns; general risk framing
+- [Claude Code Security: Shell injection via `${VAR}`](https://flatt.tech/research/posts/pwning-claude-code-in-8-different-ways/) — SOUL.md shell expansion risk; confirmed as known issue, fixed in Claude Code v1.0.93; relevant to entrypoint.sh `echo -e` pattern
 
 ---
-*Research completed: 2026-02-25*
+*Research completed: 2026-02-27*
 *Ready for roadmap: yes*

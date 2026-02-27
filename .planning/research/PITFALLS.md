@@ -1,355 +1,239 @@
 # Pitfalls Research
 
-**Domain:** Cross-repo job targeting added to existing single-repo Claude Code agent pipeline (ClawForge v1.2)
-**Researched:** 2026-02-25
-**Confidence:** HIGH (codebase inspection of entrypoint.sh, run-job.yml, notify-pr-complete.yml, auto-merge.yml, create-job.js, github.js, tools.js) / MEDIUM (GitHub Actions token behavior from official docs + community confirmation) / LOW (security exposure patterns — flagged)
+**Domain:** Instance Generator — adding multi-turn conversational intake, template-based file generation, and docker-compose.yml modification to the existing ClawForge LangGraph/Docker architecture
+**Researched:** 2026-02-27
+**Confidence:** HIGH (direct codebase inspection of agent.js, tools.js, index.js, entrypoint.sh, docker-compose.yml, instances/) / MEDIUM (LangGraph state management from official docs + community patterns) / LOW (provisioning system architecture patterns — flagged where applicable)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Entrypoint Clones clawforge When Target Is a Different Repo
+### Pitfall 1: Agent Singleton Rebuilt After Tool Addition Corrupts In-Flight Conversations
 
 **What goes wrong:**
-The `run-job.yml` workflow fires on `job/*` branch creation in clawforge. It passes `REPO_URL` as `"${{ github.server_url }}/${{ github.repository }}.git"` — always the clawforge repo. The entrypoint clones that URL into `/job`. When a cross-repo job targets, say, NeuroStory, the container is working inside the clawforge tree the entire time. Claude Code reads clawforge's files, commits to the clawforge job branch, and opens a PR against clawforge. The notification reports "merged" against the clawforge PR URL. No changes land in NeuroStory. This is the confirmed bug discovered 2026-02-25.
+`getAgent()` in `lib/ai/agent.js` uses a module-level singleton `_agent`. The singleton is compiled once at startup with the current tool list: `[createJobTool, getJobStatusTool, getSystemTechnicalSpecsTool]`. When a new `createInstanceTool` is added to this array, the singleton must be rebuilt — either by server restart or by calling `resetAgent()`. During a rolling deployment or hot-reload, a conversation thread that started with the old agent (3 tools) may be resumed against the new agent (4 tools). The SQLite checkpoint contains the old tool call schema. LangGraph's replay logic attempts to re-hydrate the state with tool call references from the old graph structure, and the `createInstanceTool` name is absent from the checkpoint's tool registry.
+
+The failure mode is silent: the agent resumes but ignores the pending intake state, responds as if the conversation just started, and the user has to repeat their request. More severe: if an instance creation was mid-intake (Archie had collected name and channels but not repos), the resume strips the partially-collected data and Archie asks from scratch, producing duplicate data collection.
 
 **Why it happens:**
-`run-job.yml` hardcodes `github.repository` (the workflow's owning repo) as `REPO_URL`. There is no mechanism for the Event Handler to pass the target repo through the GitHub Actions trigger. The `create_job` tool in `lib/ai/tools.js` has no `target_repo` parameter — `createJob()` in `lib/tools/create-job.js` operates only on `GH_OWNER`/`GH_REPO` env vars, which are always clawforge.
+LangGraph `createReactAgent` stores the tool list at compile time in the graph's node definitions. SQLite checkpoints store tool call messages by tool name. Adding a tool does not automatically update existing checkpoints. When old checkpoints reference a tool that no longer exists in the compiled graph, LangGraph's behavior is version-dependent and not guaranteed to be safe. The `_agent = null` reset path in `resetAgent()` forces a full rebuild but is only called explicitly — it does not trigger automatically on tool list changes, and there is no checkpoint migration.
 
 **How to avoid:**
-Thread the target repo through every layer:
-
-1. `create_job` tool schema adds an optional `target_repo` string parameter (e.g., `"NeuroStory"` or `"owner/repo"`).
-2. `createJob()` writes a `TARGET_REPO` line into `logs/{jobId}/job.md` (the entrypoint already reads this file).
-3. The entrypoint reads `TARGET_REPO` from `job.md` before the clone step and sets `CLONE_URL` to the target repo's authenticated URL.
-4. `run-job.yml` is unchanged — it still passes clawforge's URL as fallback; the entrypoint overrides it when `TARGET_REPO` is present.
-5. Fallback: if no `TARGET_REPO`, entrypoint uses `REPO_URL` (preserving same-repo behavior).
+1. Define `createInstanceTool` in the same `tools.js` file as the existing tools and include it in the initial `tools` array from day one of the instance (even before the intake flow is built). This way, existing checkpoints are never interrupted by a new tool appearing mid-conversation.
+2. Never add tools to a live LangGraph agent without a full server restart (not just module reload). Add this as a deployment note.
+3. If the intake flow has already started when deployment happens, the user-facing risk is a reset conversation, not a crash. Document the "restart gracefully" behavior in AGENT.md so Archie knows to say "It looks like I lost our conversation context — let's start over."
 
 **Warning signs:**
-- PR URL in notification points to `github.com/{clawforge_owner}/clawforge/pull/...` when user asked for work on a different repo.
-- Claude commits changes to `logs/`, `config/`, or other clawforge paths that are irrelevant to the task.
-- No branch or PR appears in the target repo after a "successful" cross-repo job.
+- After deployment, users report Archie "forgot" what they were discussing.
+- LangGraph checkpoint errors appear in server logs referencing unknown tool names.
+- `resetAgent()` is called mid-intake by any code path — trace all callers.
 
 **Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — the first phase must fix this before any other cross-repo feature makes sense.
+Phase 1 (Add `createInstanceTool` to tools array) — include the tool in the tools array from the first commit, even if the tool body is a stub. Never add it after conversations are live.
 
 ---
 
-### Pitfall 2: GITHUB_TOKEN Cannot Authenticate to a Different Repository
+### Pitfall 2: Multi-Turn Intake State Lives Only in LangGraph Checkpoints — Not in a Queryable Store
 
 **What goes wrong:**
-The entrypoint calls `gh auth setup-git` which configures git credentials using the `GH_TOKEN` env var. For same-repo jobs this is already the PAT used to clone clawforge (`AGENT_GH_TOKEN` secret, passed as `GH_TOKEN` inside the container). When the entrypoint tries to `git clone` a different repo using this token, the clone will fail with `repository not found` or `403` if the PAT does not have access to that repo. Worse: `|| true` on the clone would silently swallow the error and proceed with an empty `/job` directory, causing Claude to fail cryptically when trying to read files.
+The intake flow asks Archie to collect: instance name, channels, allowed repos, access restrictions, and persona. This data accumulates across multiple messages in the LangGraph conversation history (SQLite checkpoints, thread-scoped). There is no separate "intake session" record in the application database — the data only exists as unstructured text in the message history.
 
-The existing `AGENT_GH_TOKEN` secret is scoped to clawforge (or whatever scopes the operator configured). Cross-repo work requires a PAT with `repo` scope for each target repo.
+When Archie calls `createInstanceTool` to dispatch the scaffolding job, it must pass all collected fields as a structured payload. The only source of truth for those fields is the conversation history — Archie must re-extract them from messages or the operator must include them in the tool call. If the conversation history is long (the thread also has prior job discussions), extracting the right fields becomes fragile. If the operator says "actually, change the name to 'jupiter'" mid-intake, the history has two conflicting values and the LLM must resolve the ambiguity at tool-call time.
+
+The scaffolding job receives a `job_description` string (how `createJob` works today). That string is free text injected into a job container. The Claude Code agent inside the container must parse the job description to extract structured config and generate files. If the job description is ambiguous or incomplete, the container-level agent generates incorrect files, but the operator doesn't know until they inspect the PR diff.
 
 **Why it happens:**
-GitHub PATs are not automatically repo-scoped — a classic PAT grants access to all repos the user can access, but a fine-grained PAT is scoped at creation time to specific repos. The current architecture assumes the token is for clawforge only. Adding cross-repo without explicitly managing per-repo token scope risks either: (a) using an overprivileged classic PAT that silently works but grants too much access, or (b) using a fine-grained PAT scoped to clawforge only that fails silently on target repos.
+The existing `createJob` tool passes a free-text `job_description`. There is no structured config handoff between the Event Handler agent and the job container. For simple one-shot jobs, this is fine. For instance scaffolding (which requires precise values for Dockerfile `COPY` paths, REPOS.json structure, docker-compose service names, and env var prefixes), free-text is insufficient — small ambiguities produce broken configs.
 
 **How to avoid:**
-Use a single fine-grained PAT per instance, configured with `repo` scope for clawforge plus all allowed target repos. Store as `AGENT_GH_TOKEN` (already the convention). The `ALLOWED_REPOS` config per instance defines which repos need access — this directly maps to the PAT's repo permissions. Document this constraint in instance config: "AGENT_GH_TOKEN must have Contents (read/write) and Pull Requests (write) for all repos in ALLOWED_REPOS."
-
-Do not use separate tokens per target repo — the entrypoint would need logic to select which token to use, and token selection errors are silent in bash with `gh auth setup-git`.
+1. Define the intake schema upfront as a Zod object mirroring the exact fields the job container needs. Make `createInstanceTool` accept this structured schema, not free text. The tool validates completeness before dispatching.
+2. Structure the `job_description` for scaffolding jobs as a well-defined JSON block embedded in the markdown prompt — not prose. The entrypoint or Claude Code agent in the container parses the JSON, not the prose.
+3. Build Archie's intake prompts around explicit confirmation: after collecting all fields, Archie outputs a summary ("Here's what I'll create: ...") and asks for confirmation before calling `createInstanceTool`. This is the last chance to catch ambiguity before the job runs.
+4. Store the confirmed config as a JSON block in the job's `logs/{uuid}/job.md` in addition to the prose description. The container agent reads the JSON block first, falls back to prose only if JSON is absent.
 
 **Warning signs:**
-- Entrypoint log shows `git clone: repository not found` or `ERROR 403` before Claude runs.
-- Container exits at clone step, `preflight.md` is never written, `failure_stage` in notification is `docker_pull` (incorrect — it's actually an auth failure at clone, not docker pull).
-- Clone appears to succeed (no error) but `/job` is empty or contains only an empty directory.
+- The generated Dockerfile uses wrong instance name in `COPY instances/{name}/...` lines.
+- REPOS.json is generated with placeholder values rather than the repos the operator specified.
+- `docker-compose.yml` PR has service name that differs from what Archie said during intake.
+- Archie calls `createInstanceTool` with missing fields (no channels specified, no REPOS.json content).
 
 **Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — token scope must be confirmed before any cross-repo clone is attempted.
+Phase 1 (`createInstanceTool` schema) and Phase 2 (job description format) — the structured schema must be decided before any intake flow is built. Changing the schema after intake conversations are running breaks the handoff.
 
 ---
 
-### Pitfall 3: `gh pr create` Creates PR Against clawforge, Not the Target Repo
+### Pitfall 3: LangGraph Context Window Bloat From Long Intake Conversations
 
 **What goes wrong:**
-The entrypoint's PR creation step is:
-```bash
-gh pr create \
-    --title "clawforge: job ${JOB_ID}" \
-    --body "Automated job by ClawForge" \
-    --base main || true
-```
+The LangGraph ReAct agent appends every message (human, AI, tool call, tool result) to the thread's message history. The SQLite checkpoint stores the full accumulated history. For a multi-turn instance creation intake (8-12 messages to collect all fields plus confirmation), plus the prior job context that already exists in the thread, plus tool call/result pairs, the message history for an active operator's thread can grow to 20,000+ tokens by the time `createInstanceTool` is called.
 
-`gh pr create` without `--repo` infers the repo from the git remote of the current directory (`/job`). For same-repo jobs, `/job` is a clone of clawforge — so the PR goes to clawforge. For cross-repo jobs, `/job` is a clone of the target repo — so the PR would go to the target repo, which is the desired behavior.
+This approaches context limits for Claude Sonnet (200k tokens total, but the prompt itself — SOUL.md + AGENT.md + full history + current message — can exceed practical limits for API latency and cost). The instance creation conversation is especially dense because operators ask clarifying questions that generate long AI explanations about channels, scopes, and Docker networking.
 
-However, three sub-problems emerge:
+The SQLite checkpoint grows proportionally — a new checkpoint is written after every graph node execution. For a 12-message intake conversation on one thread, 24+ checkpoints accumulate (each containing the full message history at that point, not deltas). The `@langchain/langgraph-checkpoint-sqlite` package stores full state snapshots, not diffs.
 
-1. The PR title says `"clawforge: job ${JOB_ID}"` — this leaks the orchestration system name into the target repo's PR list.
-2. The `--base main` assumption fails for repos where the default branch is not `main` (e.g., `master`, `develop`, or a custom trunk branch).
-3. The job branch `job/{uuid}` was pushed to the target repo by the entrypoint's `git push origin` — but if the PAT lacks `contents: write` on the target repo, the push silently fails (`|| true`), and `gh pr create` then fails because the branch doesn't exist remotely, also silently (`|| true`). Net result: no PR, no error, notification reports "not_merged" but without explaining why.
+**Why it happens:**
+`createReactAgent` uses an append-only message history by default. There is no message trimming configured in the current `getAgent()` implementation. The SQLite checkpoint database at `data/clawforge.sqlite` has no pruning strategy for old checkpoints. At 2 instances with moderate usage, this has not been a problem. Adding the instance creation flow (which is by nature more conversational than job-dispatching) accelerates the per-thread message count.
 
 **How to avoid:**
-1. Parameterize the PR title to omit "clawforge" for cross-repo PRs, or use a neutral title.
-2. Detect the default branch of the target repo before `gh pr create`: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
-3. Add explicit error detection around push and PR creation — the `|| true` pattern hides these failures. Check `git push` exit code and report it as a new failure stage: `push_failed`.
-4. After `git push`, verify the branch exists on the remote before attempting `gh pr create`: `gh api repos/{owner}/{repo}/branches/{branch}`.
+1. When implementing `createInstanceTool`, immediately after the tool call completes and the job is dispatched, inject a "conversation reset hint" into the thread state: `addToThread(threadId, "[INTAKE COMPLETE] Instance configuration has been dispatched as job {jobId}. The intake conversation is complete.")`. This signals to future invocations that prior messages before this marker are no longer relevant.
+2. Consider a message trimmer in `getAgent()` that preserves the last N messages and the system prompt. LangGraph's `trimMessages` utility (available in `@langchain/core`) can be applied as a pre-processor on the messages state. Set the threshold conservatively (e.g., last 30 messages or 40k tokens).
+3. After the instance creation job completes and the PR lands, clear the thread state (or start a new thread) rather than carrying the intake history into subsequent conversations.
+4. Monitor the SQLite checkpoint file size. If `data/clawforge.sqlite` exceeds 100MB, the checkpoint history needs pruning. Add a note in the operator setup docs.
 
 **Warning signs:**
-- PRs appear in clawforge for jobs targeting other repos (wrong `--repo` behavior — indicates `/job` remote is pointing at clawforge despite cross-repo setup).
-- PR creation fails silently — `HAS_NEW_COMMIT=true` but no PR appears in either repo.
-- Notification `pr_url` is empty string (the `|| true` caused `gh pr create` to not output a URL).
+- Archie's responses become slow (>10s) for threads that have had instance creation conversations — LLM latency grows with context.
+- Claude API returns 400 errors citing context length exceeded.
+- `data/clawforge.sqlite` grows faster than usual after instance creation conversations.
+- Archie starts confusing fields from one instance creation with another (context contamination from overloaded history).
 
 **Phase to address:**
-Phase 2 (PR creation on target repo) — depends on Phase 1's clone being correct.
+Phase 2 (intake flow implementation) — implement the conversation reset hint immediately after `createInstanceTool` dispatches. Do not defer message management to a later phase.
 
 ---
 
-### Pitfall 4: `notify-pr-complete.yml` and `auto-merge.yml` Run in the Wrong Repository
+### Pitfall 4: Template Generation Produces Syntactically Valid But Semantically Broken Config Files
 
 **What goes wrong:**
-`notify-pr-complete.yml` fires on completion of "Auto-Merge ClawForge PR" workflow (a `workflow_run` trigger). `auto-merge.yml` fires on `pull_request` opened against clawforge's `main` branch. Both workflows live in clawforge and can only observe events in clawforge.
+The scaffolding job generates: `Dockerfile`, `SOUL.md`, `AGENT.md`, `REPOS.json`, `.env.example`, and a `docker-compose.yml` patch/addition. Each file is generated by Claude Code from a template plus the structured config passed in `job_description`. The generated files can be syntactically valid (parseable) but semantically broken in ways that are not obvious until the operator tries to use them:
 
-When a cross-repo job creates a PR in NeuroStory, these workflows in clawforge never fire. The cross-repo PR in NeuroStory has no auto-merge behavior. The notification that reports "merged/not_merged" never fires. The Event Handler never receives a completion callback. The user's Slack thread is permanently silent — the job appears to have vanished.
+- **Dockerfile**: The `COPY instances/{name}/config/SOUL.md ./config/SOUL.md` path works only if the instance directory name matches exactly (case-sensitive). If Archie collected "Jupiter" (capitalized) and the Dockerfile uses `instances/Jupiter/` but the PR creates `instances/jupiter/`, the Docker build fails with `COPY failed: file not found`.
+- **REPOS.json**: The `owner` field must be the exact GitHub organization or user slug (`ScalingEngine`, not `scaling-engine` or `Scaling Engine`). If the operator says "Scaling Engine" during intake and Claude Code generates `"owner": "Scaling Engine"`, the gh CLI calls in the entrypoint fail silently.
+- **docker-compose.yml addition**: The service name (`jupiter-event-handler`) must be unique, DNS-safe (no underscores for some compose versions), and the Traefik router label hostname must match the operator's actual DNS record. Claude Code generating a plausible-looking but incorrect hostname causes TLS provisioning to fail days later.
+- **`.env.example`**: Missing env vars cause the operator to unknowingly run the instance without required secrets. Claude Code may omit uncommon vars (e.g., `TELEGRAM_CHAT_ID`) if the operator said "Telegram channel" without the chat ID.
 
 **Why it happens:**
-GitHub Actions workflows are repo-scoped. `notify-pr-complete.yml` observes `workflow_run` events, but `workflow_run` only captures workflows within the same repository. A PR merge in NeuroStory does not trigger any workflow in clawforge. Cross-repo notifications require an explicit outbound call from the target repo's workflows to the Event Handler, or a polling mechanism.
+Claude Code inside the job container operates from the `job_description` string. The container agent has the existing instances (`noah/`, `strategyES/`) as reference, but template generation requires precise values that are context-dependent. The agent uses the best available information — if the job description says "owner: ScalingEngine" but the operator actually wants a different org, the error is in the input, not the generation. The PR diff will show the generated files, but the operator reviews it quickly and misses the subtle errors.
 
 **How to avoid:**
-For cross-repo PRs, the notification path must change:
-
-Option A (recommended): After `gh pr create` in the entrypoint, the entrypoint itself sends the notification payload directly to the Event Handler webhook. This avoids needing workflows in target repos. The entrypoint already has `APP_URL` and `GH_WEBHOOK_SECRET` available as `AGENT_*` secrets.
-
-Option B: Install clawforge's workflow files (notify-pr-complete.yml, auto-merge.yml) into each allowed target repo. This is operationally complex and requires maintaining these files across repos.
-
-Option A is the right call for v1.2 scope. The entrypoint must distinguish same-repo vs cross-repo post-completion and use the appropriate notification path.
+1. Include explicit validation instructions in the job prompt: "After generating all files, verify: (a) Dockerfile COPY paths match the instance directory name exactly as lowercase; (b) REPOS.json owner fields are exact GitHub slugs; (c) docker-compose service name is lowercase-hyphenated with no special characters; (d) all env var names from the existing noah/.env.example are present in the new .env.example."
+2. The PR description must include a "Generated file checklist" that the operator executes before merging. Each item is a specific thing to verify — not general advice.
+3. Store the exact canonical values (GitHub org slug, instance name in lowercase) in the job's JSON config block and instruct the container agent to use these verbatim, not to infer or reformat them.
+4. The generated REPOS.json should include only the repos Archie confirmed during intake, in the exact format of the existing `instances/noah/config/REPOS.json` — the container agent should copy the structure directly, not invent new field names.
 
 **Warning signs:**
-- Cross-repo jobs complete but no notification appears in Slack/Telegram.
-- `job_outcomes` table in SQLite has no entry for the cross-repo job ID.
-- The PR in the target repo is open/merged but the Event Handler has no record of completion.
-- User asks "what happened to my job?" — the agent has no context.
+- Docker build fails with `COPY failed: file not found` after applying the PR.
+- `gh api repos/{owner}/{repo}` returns 404 because the owner slug is formatted incorrectly.
+- `docker compose config` reports validation errors after applying the docker-compose.yml addition.
+- The new instance container starts but Traefik returns 404 because the router hostname doesn't match DNS.
 
 **Phase to address:**
-Phase 3 (Notification routing for cross-repo jobs) — this is the hardest problem and must be explicitly designed, not discovered during testing.
+Phase 3 (scaffolding job prompt) — the job prompt must include the validation instructions and the JSON config block. This is the single point where precision is enforced.
 
 ---
 
-### Pitfall 5: `auto-merge.yml` Cannot Merge PRs in Target Repos
+### Pitfall 5: docker-compose.yml Modification via PR Creates Merge Conflicts With Concurrent Changes
 
 **What goes wrong:**
-`auto-merge.yml` in clawforge fires on `pull_request` opened against clawforge. For cross-repo PRs, it never fires. Even if it did, the `GITHUB_TOKEN` provided to clawforge's workflow cannot merge PRs in NeuroStory — `GITHUB_TOKEN` is scoped to a single repository (the workflow's owning repo). Auto-merge for cross-repo jobs requires either (a) the entrypoint auto-merges immediately after PR creation using the already-authenticated PAT, or (b) a human merges the PR manually.
+The scaffolding job generates a new service block to add to `docker-compose.yml` and a new network to add to the `networks:` section. This is delivered as a PR that modifies `docker-compose.yml`. If any other change to `docker-compose.yml` has been merged to `main` since the PR was created, the merge will conflict.
 
-Additionally, the `ALLOWED_PATHS` guard in `auto-merge.yml` is designed to prevent Claude from modifying arbitrary files in clawforge. For target repos, the semantics are completely different — operators may want Claude to modify any file in NeuroStory, not just `logs/`. Blindly applying clawforge's `ALLOWED_PATHS` to cross-repo PRs would block all merges.
+More critically: if two instance creation jobs run concurrently (unlikely for 2-instance production but possible in testing), both PRs modify `docker-compose.yml`. The second PR to merge will conflict on the `volumes:` and `networks:` sections even if the service blocks are distinct. The operator must resolve the conflict manually — but the context for what each PR added is now split across two PR descriptions, making it easy to accidentally drop one service block.
+
+Additionally, the existing pattern of `git add -A` + `git commit` in the entrypoint followed by `--base main` PR creation means the PR is always branched from `main` at job start time. If `main` changes before the PR is reviewed (another service added, traefik config updated), the diff grows stale but the PR shows no conflict — Docker Compose is YAML and line-based diff tools may not surface semantic conflicts.
 
 **Why it happens:**
-The auto-merge design assumes the PR is always in clawforge and always subject to clawforge's path restrictions. Cross-repo jobs have different merge policies (who approves, what paths are allowed) that vary by target repo.
+`docker-compose.yml` is a single file shared across all instances. There is no modular compose file strategy currently (no `docker-compose.override.yml` per instance). Adding a service block is a direct modification to the shared file. PR-based delivery of infrastructure changes is correct for audit trail but introduces the conflict risk of any shared-file modification.
 
 **How to avoid:**
-For v1.2, define cross-repo merge policy explicitly in `ALLOWED_REPOS` config:
-
-```json
-{
-  "neurostory": {
-    "owner": "ScalingEngine",
-    "repo": "neurostory",
-    "auto_merge": true,
-    "allowed_paths": "/"
-  }
-}
-```
-
-The entrypoint reads the target repo's merge policy from `ALLOWED_REPOS` config (passed via `AGENT_*` secrets as JSON). If `auto_merge: true`, the entrypoint calls `gh pr merge --squash` immediately after PR creation, using the PAT it already has. This moves merge authority into the entrypoint where the correct token and correct repo context are already present.
+1. Use Docker Compose `include:` directive (supported since Compose v2.20) to split each instance into its own `docker-compose.{name}.yml`. The main `docker-compose.yml` uses `include:` to pull in instance-specific files. The scaffolding job then only creates the new `docker-compose.{name}.yml` — it never modifies the shared `docker-compose.yml` beyond adding one `include:` line (low conflict risk). Each instance's compose file is its own PR artifact.
+2. If keeping a monolithic `docker-compose.yml` is preferred (simpler for the operator), include a note in the PR: "If another compose PR has merged since this branch was created, manually rebase before merging." Add `docker compose config` to the PR checklist.
+3. The job prompt must instruct Claude Code to append the new service at the end of the `services:` block, add the new network at the end of `networks:`, and add volumes at the end of `volumes:`. Consistent append-at-end reduces the surface area of line-level conflicts.
+4. Do not run two instance creation jobs simultaneously. The `createInstanceTool` should check for an existing open instance-creation PR before dispatching.
 
 **Warning signs:**
-- Cross-repo PRs stay open indefinitely with no merge.
-- `job_outcomes` entries show `merge_result: "not_merged"` for all cross-repo jobs.
-- Operators get "not merged" notifications and have to manually merge PRs.
+- Git merge conflict markers appear in `docker-compose.yml` after the PR is merged.
+- `docker compose up` fails after the PR is applied because a service definition is malformed from a bad conflict resolution.
+- `docker compose config` shows duplicate network or volume names.
+- The Traefik container fails to start because its network list in the compose file is incomplete.
 
 **Phase to address:**
-Phase 2 (PR creation and merge on target repo) — design the merge policy per target repo during PR creation phase.
+Phase 3 (scaffolding job prompt) and Phase 4 (PR description) — the job prompt must specify the correct append-at-end strategy; the PR description must include the `docker compose config` verification step.
 
 ---
 
-### Pitfall 6: Same-Repo Jobs Regress When Entrypoint Logic Is Modified
+### Pitfall 6: Incomplete Intake Abandonment Leaves No Cleanup Path
 
 **What goes wrong:**
-Adding `TARGET_REPO` detection to the entrypoint requires a conditional branch: "if cross-repo, clone target; if same-repo, use existing REPO_URL." A bug in the conditional — wrong variable name, incorrect fallback, or a missing `elif` — causes same-repo jobs to fall into the wrong branch. The symptom is subtle: the container clones the right repo but from the wrong branch, or `JOB_ID` extraction fails because `BRANCH` is parsed differently in the new code path.
+An operator starts the instance creation flow with Archie, provides some information (name, channels), then stops responding or changes their mind. The LangGraph thread retains the partial intake state. The next time the operator messages Archie (even days later on the same thread), Archie's context includes the partial intake — it may resume the intake instead of responding to the new unrelated question. Worse: if the operator says "never mind" and Archie interprets this as a signal to dispatch with partial data, the scaffolding job creates an incomplete instance with missing REPOS.json or placeholder values.
 
-Additionally, any change to how `FULL_PROMPT` is assembled that breaks the 5-section structure causes Claude to receive a malformed prompt — it may not know where the task starts and where documentation ends. The test harness (`templates/docker/job/test-harness/`) runs locally against a Docker container but does not exercise the cross-repo path.
+There is also no recovery path if the dispatched job creates broken files and the PR is merged by accident. The broken files (`instances/{name}/Dockerfile`, etc.) now exist in `main` and must be manually deleted.
 
 **Why it happens:**
-The entrypoint is a bash script with `set -e` — any unhandled error exits the container. Conditional logic for cross-repo vs same-repo is error-prone in bash, especially when `REPO_URL`, `TARGET_REPO`, and `CLONE_URL` coexist and one is derived from another. Developers add the cross-repo path, test it, and assume same-repo is unchanged — but bash variable scoping issues can cause cross-contamination.
+LangGraph conversation threads are persistent and stateful. The intake conversation context does not expire. There is no "cancel intake" operation that clears the partial state from the thread. The `create_job` tool only has a gate (missing fields), but a partially-filled intake with plausible placeholder values may pass validation.
 
 **How to avoid:**
-Write an explicit regression test before touching the entrypoint:
-1. Run a same-repo job against a local test scenario using the existing test harness.
-2. Record the baseline: which files are cloned, what `FULL_PROMPT` looks like, what `git log` shows after the job.
-3. Add cross-repo logic, then re-run the same test and confirm baseline is unchanged.
-
-Use clear variable naming: `TARGET_REPO_SLUG` (the new cross-repo value), `SELF_REPO_URL` (the always-clawforge URL from `REPO_URL`), `CLONE_URL` (resolved from target or self). Never reuse `REPO_URL` to mean different things in different code paths.
+1. Define explicit cancellation phrases in EVENT_HANDLER.md: "If the operator says 'cancel', 'never mind', 'stop', or 'forget it' during an instance creation flow, do NOT dispatch the job. Confirm cancellation and clear your context."
+2. Do not store intake state in LangGraph conversation history alone. Use a short-lived DB record (or a `pending_instances` table in SQLite) that tracks in-progress intakes with a TTL. If the intake is not confirmed within 30 minutes, mark it expired. The `createInstanceTool` checks for an active record before dispatching.
+3. Generate the PR description with a prominent "DRAFT — DO NOT MERGE until setup checklist is complete" warning. Even if an incomplete instance PR is merged, the warning prevents the operator from deploying it immediately.
+4. The `createInstanceTool` must validate all required fields before calling `createJob`. Required fields: instance name (lowercase, alphanumeric+hyphen only), at least one channel configured (Slack or Telegram), at least one allowed repo in REPOS.json.
 
 **Warning signs:**
-- Same-repo jobs fail immediately after entrypoint changes are deployed.
-- `JOB_ID` is extracted as empty string or UUID-shaped random value (parsing broke).
-- `preflight.md` shows `Working directory` as `/job` but `git remote -v` shows the wrong repo URL.
-- The 5-section `FULL_PROMPT` structure is missing sections (e.g., Stack section absent because `REPO_STACK` logic was refactored).
+- Archie asks "What's the instance name?" in the middle of an unrelated conversation on the same thread.
+- An instance creation PR is opened with placeholder values (`my-instance`, `YOUR_REPO_HERE`).
+- The operator reports confusion about why Archie is asking about instance creation when they asked about something else.
 
 **Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — regression tests must be written before entrypoint changes. The phase should explicitly gate on "same-repo jobs still pass" before cross-repo work is considered complete.
+Phase 2 (intake flow) — cancellation handling and required field validation must be part of the initial intake implementation, not added after.
 
 ---
 
-### Pitfall 7: `createJob()` Creates Branches and Writes `job.md` in clawforge — Not in the Target Repo
+### Pitfall 7: Generated AGENT.md Uses Wrong Tool Allowlist Format — Claude Code Ignores It
 
 **What goes wrong:**
-`lib/tools/create-job.js` calls GitHub API to:
-1. Get clawforge's `main` branch SHA.
-2. Create `job/{uuid}` branch in clawforge.
-3. Write `logs/{uuid}/job.md` to that branch in clawforge.
+The `AGENT.md` file is the instruction file baked into the Docker image at `/defaults/AGENT.md` and read by the entrypoint to construct the system prompt for Claude Code jobs. It contains the `--allowedTools` instructions. The generated AGENT.md for a new instance must match the exact format and tool names expected by the `claude -p --allowedTools` CLI flag.
 
-This always happens in clawforge regardless of target repo. This is correct — the job branch in clawforge is what triggers `run-job.yml`, and `job.md` is how the job description reaches the container. The pitfall is assuming this needs to change for cross-repo jobs. It does not.
+Claude Code's tool names are case-sensitive and version-specific. If the generated AGENT.md uses `"read"` instead of `"Read"`, or `"bash"` instead of `"Bash"`, the Claude Code CLI either ignores the directive or throws a parse error. If it ignores it, Claude Code runs with no tool access and produces empty output. If it throws, the job fails at the `claude` stage with a cryptic error that is not surfaced in the failure_stage detection (which looks for `preflight.md` presence, not `claude -p` flag errors).
 
-The confusion is: developers see `createJob()` targeting clawforge and assume it needs to be updated to target the target repo. Changing `createJob()` to create branches in the target repo would break the GitHub Actions trigger (which watches clawforge's `job/*` branches) and would require the target repo to have run-job.yml installed.
+Similarly, the `SOUL.md` persona must be in a format that the `--append-system-prompt` flag accepts cleanly. Markdown characters that are special in shell (backticks, dollar signs) must not appear unescaped in the SOUL.md content — or the `echo -e "$SYSTEM_PROMPT"` in the entrypoint will expand them as shell variables, corrupting the prompt.
 
 **Why it happens:**
-The architecture's two-step design (clawforge branch triggers Action, Action runs container, container clones target) is non-obvious. Developers who read `createJob()` in isolation see it creating files in clawforge and assume the whole pipeline needs to be in the target repo for cross-repo support.
+Claude Code is responsible for generating AGENT.md from a template. The container agent sees the existing `instances/noah/config/AGENT.md` as reference. But if the LLM deviates slightly from the format (different capitalization, added explanatory comments that break the allowedTools list format), the generated file is syntactically valid markdown but behaviorally incorrect. This failure mode is invisible in the PR diff — the file looks correct to a reviewer who doesn't know the exact expected format.
 
 **How to avoid:**
-Document explicitly in the code and architecture: "clawforge is always the orchestrator. The job branch always goes to clawforge. The target repo is only touched by the entrypoint inside the container." Only the entrypoint changes for cross-repo support. `createJob()` changes only to embed `TARGET_REPO` in the `job.md` content it writes — the API calls remain clawforge-only.
-
-The entrypoint reads `TARGET_REPO` from the `job.md` it finds after cloning the clawforge branch. This is the correct handoff point.
+1. Include the exact AGENT.md content as a literal template in the job prompt — instruct Claude Code to use it verbatim except for the instance-specific persona name. Do not ask the LLM to "write a similar AGENT.md" — give it the exact source.
+2. Add to the PR checklist: "Open AGENT.md and confirm `--allowedTools` line matches exactly: `Read,Write,Edit,Bash,Glob,Grep,Task,Skill`."
+3. Include `SOUL.md` as a similar literal template with clear markers for the instance-specific sections that should be filled in.
+4. In the job prompt, add a constraint: "SOUL.md must not contain backtick characters, `$`, or `\`` outside of code blocks, as these will be expanded by the entrypoint shell." This constraint is specific to the entrypoint's `echo -e "$SYSTEM_PROMPT"` pattern.
 
 **Warning signs:**
-- PRs/branches appearing in NeuroStory during development but before entrypoint changes are tested (indicates `createJob()` was incorrectly modified).
-- `run-job.yml` stops firing (indicates the branch creation was moved out of clawforge).
-- `notify-job-failed.yml` can no longer find `logs/{jobId}/job.md` (indicates log directory was moved to target repo).
+- New instance Claude Code jobs produce empty output (no files changed, no PR content beyond log files).
+- Entrypoint log shows `claude: unrecognized option '--allowedTools read,write'` (lowercase tool names).
+- System prompt for the new instance contains literal `$VARIABLE_NAME` text instead of resolved values.
+- GSD invocations are zero for all jobs from the new instance — AGENT.md did not correctly mandate Skill tool use.
 
 **Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — explicitly document which layer does what. Code review should flag any changes to `createJob()` that touch repo targeting.
+Phase 3 (scaffolding job prompt) — the job prompt must include the exact AGENT.md template content, not instructions to "write something similar."
 
 ---
 
-### Pitfall 8: Notification Routing Fails Because `job_origins` Maps Job ID to Thread, Not to Repo
+### Pitfall 8: Instance Name Collisions Produce Ambiguous docker-compose Service Names and Network Names
 
 **What goes wrong:**
-When a cross-repo job completes, the Event Handler's `getJobOrigin(jobId)` looks up which thread originated the job to route the notification. For same-repo jobs, `notify-pr-complete.yml` sends the webhook to the Event Handler with `job_id` and `pr_url` populated. The Event Handler matches `job_id` → `thread_id` → sends Slack/Telegram notification.
+The `docker-compose.yml` uses service name, container name, network name, and volume name all derived from the instance name. For a new instance "marketing", the job generates:
+- Service: `marketing-event-handler`
+- Container: `clawforge-marketing`
+- Network: `marketing-net`
+- Volumes: `marketing-data`, `marketing-config`
 
-For cross-repo jobs (if using Option A notification via entrypoint), the entrypoint sends the notification directly. But the payload needs to include `job_id` (which the entrypoint has), `pr_url` (which `gh pr create` outputs), and `merge_result`. The Event Handler's webhook handler must reconstruct a payload that matches the expected schema — but the cross-repo notification arrives before the PR is merged (the entrypoint sends it immediately after PR creation or merge), while the same-repo notification arrives after auto-merge. The `merge_result` field will be different, and the `summarizeJob()` logic uses that field to choose the notification tone.
+If an operator previously created and deleted an instance named "marketing", the Docker volumes `marketing-data` and `marketing-config` may still exist on the host. `docker compose up` will reuse those volumes, which may contain stale configuration from the old instance (old SQLite db, old config files). The new instance starts with a prior instance's conversation history and API keys in its database.
 
-**Why it happens:**
-The notification schema was designed for the existing flow where GitHub Actions is the notifier. The entrypoint-as-notifier pattern requires the entrypoint to construct the same JSON payload that `notify-pr-complete.yml` constructs — including fields it may not have (changed files list, commit message from merged PR).
-
-**How to avoid:**
-The entrypoint should build the notification payload after push and PR creation:
-```bash
-CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
-COMMIT_MSG=$(git log -1 --format="%s" 2>/dev/null || echo "")
-PR_URL=$(gh pr create ... 2>&1 | grep "https://github.com" || echo "")
-```
-Then use the same `jq` construction as `notify-pr-complete.yml` to build the payload. The `merge_result` field should be set to `"merged"` if the entrypoint auto-merged, or `"open"` if the PR is left for human review. This keeps the Event Handler's webhook handler unchanged — it receives the same schema regardless of same-repo vs cross-repo.
-
-**Warning signs:**
-- Cross-repo job notification appears in wrong Slack thread.
-- Event Handler logs show "job_id not found in job_origins" for cross-repo jobs.
-- Notification tone is wrong (e.g., reports "failed" for a successfully merged cross-repo PR).
-- `job_outcomes` table has no record for cross-repo job IDs.
-
-**Phase to address:**
-Phase 3 (Notification routing for cross-repo jobs) — must replicate exact notification schema used by `notify-pr-complete.yml`.
-
----
-
-### Pitfall 9: Branch Name `job/{uuid}` Pushed to Target Repo Pollutes Its Branch List
-
-**What goes wrong:**
-The entrypoint's git workflow:
-1. Clones target repo to `/job` on the cross-repo branch (job branch from clawforge, which is `job/{uuid}`).
-2. Claude makes changes inside `/job`.
-3. `git push origin` pushes the `job/{uuid}` branch to the target repo's remote.
-4. `gh pr create` opens a PR in the target repo from `job/{uuid}` to the target's default branch.
-
-After the PR is merged, the `job/{uuid}` branch remains in the target repo unless explicitly deleted. Over time, hundreds of `job/{LONG-UUID}` branches accumulate in the target repo, polluting the branch list and potentially confusing human contributors.
-
-Additionally, a `job/{uuid}` branch in the target repo is meaningless without clawforge context — a developer seeing it in NeuroStory has no idea what created it.
+Additionally, if the instance name contains characters that are valid in the intake conversation but invalid in docker-compose service names (uppercase, underscores, spaces), the generated compose file causes `docker compose config` validation errors.
 
 **Why it happens:**
-The current entrypoint never deletes branches after PR creation because for same-repo jobs, GitHub's branch-deletion-on-merge setting handles cleanup. For target repos, that setting may not be enabled, and even if it is, it only applies after merge — not-merged (rejected) PRs leave orphaned branches.
+Docker Compose volume names persist until explicitly deleted with `docker volume rm`. The scaffolding job has no awareness of existing volumes. The `createInstanceTool` has no pre-check for naming conflicts. Instance name validation during intake does not account for the full set of docker-compose naming constraints.
 
 **How to avoid:**
-1. After PR creation (and optionally after merge), add `git push origin --delete job/${JOB_ID}` to the entrypoint's cross-repo path. For the same-repo path, preserve existing behavior (let GitHub handle cleanup).
-2. Consider using a different branch naming convention in target repos: `clawforge/{uuid}` instead of `job/{uuid}`. This makes the branch origin obvious to target repo contributors and avoids any namespace collision if the target repo has its own `job/` branches.
-3. If using `clawforge/{uuid}` branches in target repos, update the `pr_url` extraction logic in the entrypoint — it cannot rely on searching for `job/*` branches in the target repo.
+1. During intake, validate the instance name immediately: lowercase, alphanumeric, hyphens only, max 20 characters. Reject anything else at the Event Handler layer (in `createInstanceTool` validation) before the job is dispatched.
+2. The job prompt must include a check: "Before writing docker-compose.yml additions, verify the service name `{name}-event-handler` does not already appear in the current docker-compose.yml."
+3. The PR description must include: "If this instance name was previously used, run `docker volume rm {name}-data {name}-config` before `docker compose up` to avoid state contamination from prior runs."
+4. The generated docker-compose.yml service block must include a `restart: unless-stopped` policy and a clear `container_name` so the operator can identify which container corresponds to which instance.
 
 **Warning signs:**
-- Target repo accumulates dozens of `job/{uuid}` branches with no clear ownership.
-- Target repo contributors open issues asking "what are these job branches?"
-- PR list in target repo is polluted with ClawForge-generated PRs, making navigation difficult.
+- `docker compose up` starts the new instance but it already has chat history in its database.
+- `docker compose config` returns a validation error about the service name.
+- The Traefik router for the new instance conflicts with an existing router label.
 
 **Phase to address:**
-Phase 2 (PR creation on target repo) — branch naming convention for target repos should be decided before any cross-repo jobs run.
-
----
-
-### Pitfall 10: CLAUDE.md Injection in Entrypoint Reads from `/job` — Which Is Now the Target Repo, Not clawforge
-
-**What goes wrong:**
-The entrypoint reads CLAUDE.md from `/job/CLAUDE.md`:
-```bash
-if [ -f "/job/CLAUDE.md" ]; then
-    RAW_CLAUDE_MD=$(cat /job/CLAUDE.md)
-```
-
-For same-repo jobs, this is clawforge's own CLAUDE.md — the agent gets architectural context for the codebase it's modifying.
-
-For cross-repo jobs, `/job` is a clone of the target repo. The entrypoint reads the target repo's CLAUDE.md — which is exactly what you want for cross-repo work. This part works correctly by accident.
-
-However, the SOUL.md and AGENT.md system prompt files are still read from `/job/config/`:
-```bash
-if [ -f "/job/config/SOUL.md" ]; then
-if [ -f "/job/config/AGENT.md" ]; then
-```
-
-For cross-repo jobs, `/job/config/SOUL.md` is the target repo's `config/SOUL.md` — which may not exist (NeuroStory doesn't have clawforge's config structure). The system prompt will be empty. Claude runs with no persona, no behavioral guidelines, and no GSD routing instructions.
-
-**Why it happens:**
-The entrypoint assumes the cloned repo always has `config/SOUL.md` and `config/AGENT.md`. This is true for clawforge (same-repo jobs). It is false for any other repo (cross-repo jobs). The system prompt assembly silently produces an empty string when the files are absent — no error, no warning, no fallback.
-
-**How to avoid:**
-Bake the system prompt into the Docker image rather than reading it from the cloned repo. Store SOUL.md and AGENT.md as files inside the Docker image (e.g., `/defaults/SOUL.md`, `/defaults/AGENT.md`). The entrypoint always loads from the image defaults, with an optional override if the cloned repo has these files. Cross-repo repos never override because they don't have this structure.
-
-Alternatively, pass the system prompt content as a container environment variable (base64-encoded) from `run-job.yml`, which can read it from clawforge's own repo at Action startup time.
-
-**Warning signs:**
-- Cross-repo job runs produce no SOUL.md-aligned output — Claude behaves generically, not as the configured persona.
-- AGENT.md instructions ("MUST use Skill tool") are absent from cross-repo jobs — Claude does not invoke GSD.
-- `--append-system-prompt` receives an empty string — Claude runs with only Anthropic's default system prompt.
-- GSD invocations are zero for cross-repo jobs even for complex tasks.
-
-**Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — system prompt sourcing must be fixed in the same phase as the clone change. This is a blocking issue.
-
----
-
-### Pitfall 11: Token Embedded in REPO_URL Appears in Container Logs
-
-**What goes wrong:**
-`run-job.yml` passes:
-```yaml
--e REPO_URL="${{ github.server_url }}/${{ github.repository }}.git"
-```
-This is just the plain URL without a token — `gh auth setup-git` handles authentication separately. However, when the entrypoint is extended to clone a target repo, developers may be tempted to embed the PAT directly in the clone URL for simplicity:
-```bash
-CLONE_URL="https://x-access-token:${AGENT_GH_TOKEN}@github.com/org/target-repo.git"
-git clone "$CLONE_URL" /job
-```
-This will print the full URL with the embedded token in the container's stdout output, which is captured by GitHub Actions and stored in the workflow run logs. If the workflow run is public (public repo), the token is exposed to anyone who reads the logs.
-
-**Why it happens:**
-Embedding tokens in URLs is the simplest way to authenticate `git clone` in a container where git credential helpers may not be set up. It works, but it leaks secrets via logs. The current entrypoint avoids this by calling `gh auth setup-git` first, then using a plain URL — but this pattern may not be obvious to developers extending the entrypoint for cross-repo.
-
-**How to avoid:**
-Always use `gh auth setup-git` before any `git clone` call. `gh auth setup-git` configures git's credential helper to use the `GH_TOKEN` environment variable transparently — no token appears in URLs. Confirm `GH_TOKEN` is set before calling `gh auth setup-git`. For cross-repo clones, `GH_TOKEN` must be the PAT with access to the target repo (same token, broader scope).
-
-If embedding in URL is unavoidable, use `git clone` with `GIT_ASKPASS` or `git credential-store` patterns — never interpolate token into the URL string that is echoed or logged.
-
-**Warning signs:**
-- GitHub Actions log for a run shows a URL containing `https://ghp_...@github.com` or `x-access-token:...`.
-- GitHub's secret-scanning bot detects a token in workflow logs and sends a security alert email.
-- Token embedded in URL shows up in `git remote -v` output, which may be echoed by debugging steps.
-
-**Phase to address:**
-Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in code review to ensure no token interpolation.
+Phase 2 (intake flow) for name validation, Phase 3 (job prompt) for collision detection in compose file.
 
 ---
 
@@ -357,13 +241,12 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hardcode `--base main` for cross-repo PRs | Simpler entrypoint | PR creation fails for repos with non-main default branches | Never — detect default branch with `gh repo view --json defaultBranchRef` |
-| Read SOUL.md/AGENT.md from `/job/config/` for cross-repo | No entrypoint change needed | Empty system prompt for all cross-repo jobs — Claude runs without persona or GSD instructions | Never for cross-repo — bake into Docker image |
-| Use one classic PAT with all-repo access | One token, no per-repo config | Overprivileged token; if leaked, all repos are compromised | Acceptable in MVP with 2 instances; unacceptable at scale |
-| Have entrypoint push `job/{uuid}` branch to target repo | No branch naming change needed | Target repo accumulates orphaned branches; semantically confusing to contributors | Acceptable short-term if branch-deletion-on-merge is enabled; document as known debt |
-| `|| true` on `git push` and `gh pr create` for cross-repo | Container never fails on push errors | Auth failures and push rejections are silently swallowed — no push failure notification | Never — add explicit exit code tracking and `push_failed` stage |
-| Notify from `notify-pr-complete.yml` for cross-repo | No entrypoint changes | Notification never fires because workflow only sees clawforge events | Never — entrypoint must notify for cross-repo |
-| Skip ALLOWED_REPOS validation in agent tool | Simpler `create_job` tool | Agent can target any arbitrary public GitHub repo, not just allowed list | Never — enforce allowlist before `createJob()` is called |
+| Free-text `job_description` for intake config | No schema change needed | Container agent must parse prose for precise config values; ambiguous values produce broken files silently | Never for instance creation — use JSON config block |
+| Store intake state only in LangGraph checkpoints | No new DB table | State is unretrievable without replaying the conversation; no TTL; no cancellation | Never for multi-turn flows that dispatch irreversible actions |
+| Monolithic `docker-compose.yml` modification | Simpler file structure | Merge conflicts when multiple instance PRs are in flight; single-file blast radius | Acceptable only if instance creation is strictly serialized |
+| Copy AGENT.md template by instruction ("write something similar") | Faster job prompt | LLM deviates from exact tool name format; Claude Code silently fails | Never — provide exact template as literal |
+| Skip instance name validation in intake | Faster implementation | Invalid names produce broken Docker resources that require manual cleanup | Never — validate on input, before the job is dispatched |
+| Dispatch job with partial intake (missing repos) | Faster UX | Generated REPOS.json has placeholders; instance cannot target any repo; operator confused | Never — enforce required field gate before dispatch |
 
 ---
 
@@ -371,13 +254,13 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| `gh pr create` in cross-repo entrypoint | Running without `--repo` assumes current dir's remote is always right | Use `--repo {owner}/{repo}` explicitly; the current dir remote may differ from what you intend |
-| `gh auth setup-git` for cross-repo clone | Calling once at the top then cloning a different repo where token has no access | Confirm `GH_TOKEN` has access to target repo before cloning; add a preflight API call: `gh api repos/{owner}/{repo}` |
-| `workflow_run` trigger for cross-repo completion | Expecting `notify-pr-complete.yml` to fire when a PR merges in NeuroStory | `workflow_run` only captures runs in the same repo — cross-repo completion requires entrypoint-side notification |
-| `GITHUB_TOKEN` in `auto-merge.yml` and `notify-pr-complete.yml` | Using `GITHUB_TOKEN` for cross-repo `gh pr merge` or `gh pr view` | `GITHUB_TOKEN` is repo-scoped to clawforge only; cross-repo operations require the PAT from `AGENT_GH_TOKEN` |
-| `git push origin` in cross-repo entrypoint | Pushing `job/{uuid}` branch to target repo without checking if it already exists | Run `git ls-remote --exit-code origin job/${JOB_ID}` before push; handle "already exists" separately from auth failures |
-| `gh pr list --repo "${{ github.repository }}"` in `notify-pr-complete.yml` | Always queries clawforge for PR info | For cross-repo the PR is in the target repo; this query finds no match and `pr_url` remains empty |
-| `REPO_SLUG` derivation from `REPO_URL` in entrypoint | `REPO_SLUG` resolves to `ScalingEngine/clawforge` for all jobs | For cross-repo jobs, `TARGET_REPO_SLUG` should be used in `FULL_PROMPT`'s `## Target` section |
+| LangGraph agent singleton + new tool | Adding `createInstanceTool` to tools array requires `resetAgent()` + server restart to take effect | Include tool in initial tools array; never add mid-session; restart server on deploy |
+| LangGraph checkpoint + long intake | Default append-only history grows to 20k+ tokens for conversational intake threads | Implement `trimMessages` preprocessor in `getAgent()`; inject completion marker after dispatch |
+| `addToThread()` for job completion injection | Injecting completion message into thread that already has 15+ messages may confuse Archie about intake state | Always inject with explicit marker prefix: `[INTAKE COMPLETE]` so EVENT_HANDLER.md can pattern-match |
+| `createJob` free-text + container agent | Passing intake config as prose in `job_description` lets container agent guess at field values | Embed JSON config block at top of `job_description` in a fenced code block; instruct container agent to parse JSON first |
+| `docker-compose.yml` + include directive | docker-compose `include:` requires Compose v2.20+ — older `docker-compose` v1 does not support it | Verify `docker compose version` on target host before using `include:`; document minimum version |
+| `echo -e "$SYSTEM_PROMPT"` in entrypoint | SOUL.md content with `$` or backticks gets shell-expanded during echo | Sanitize generated SOUL.md content: escape `$` as `\$` in template; use `printf '%s'` instead of `echo -e` for safer expansion |
+| GitHub Actions `--base main` in same-repo PR | Instance scaffolding PR targets clawforge's `main` — if this is a branch-protected environment, it may require review | Same as existing jobs — same-repo PRs go through `auto-merge.yml`; instance creation PRs should go through same path with path-restriction allow for `instances/` |
 
 ---
 
@@ -385,9 +268,9 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Cloning large target repos with `--depth 1` | Clone takes 2-3 minutes for repos with many large files; job times out | Use `--depth 1 --single-branch --branch {job_branch}` — already the pattern; ensure target repo has no LFS bloat | Any target repo >500MB |
-| PR creation poll loop for cross-repo | Entrypoint waits for PR to be mergeable (like `auto-merge.yml`) — blocks for 5+ minutes | For cross-repo, merge immediately after push if `auto_merge: true`; do not poll — entrypoint has a 30-min timeout | Target repos with required status checks that take >10 min |
-| `gh pr list` in target repo without scoping | Fetches all PRs in target repo to find the right one; slow for active repos with hundreds of PRs | Use `--head job/{uuid}` to filter by branch — O(1) lookup | Target repos with >500 open PRs |
+| Long intake conversation accumulates checkpoint writes | SQLite grows rapidly; every LangGraph step writes full state snapshot | Add message trimmer; clear checkpoints after intake completes | After 5+ instance creation conversations on same thread |
+| Container agent generates all files with one long Write call | Single `claude -p` run generating 6+ files often hits the 30-min timeout if the LLM is verbose | Instruct container agent to write each file independently and commit incrementally; use GSD plan-phase routing | Any scaffolding job with a verbose LLM model |
+| `createInstanceTool` dispatches job with full conversation history in description | Job description grows to 10k+ characters including conversation context | Pass only the confirmed config JSON block as job description; strip conversation prose | When Archie summarizes the intake verbosely in the tool call |
 
 ---
 
@@ -395,11 +278,11 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Token embedded in clone URL passed to `git clone` | Token appears in container stdout → workflow logs → publicly visible for public repos | Always use `gh auth setup-git` + plain URL; never interpolate PAT into URL string |
-| Classic PAT with all-org repo access | If PAT is leaked (via log, artifact, or env dump), attacker accesses all repos in org | Use fine-grained PAT scoped to specific allowed repos only |
-| Allowing agent to self-select any target repo | Agent or malicious prompt could target repos not in the allowed list | Enforce `ALLOWED_REPOS` check in `createJobTool` before calling `createJob()`; reject unknown repos with clear error |
-| Cross-repo CLAUDE.md injection without sanitization | Target repo's CLAUDE.md may contain adversarial instructions aimed at the agent | Already mitigated by "read-only reference" framing from v1.1; confirm framing persists for cross-repo target CLAUDE.md |
-| `AGENT_GH_TOKEN` logged by entrypoint debug output | Token appears in Actions logs if entrypoint echoes env vars | Never `echo` or `env` in the entrypoint; the current `set -e` + no env dump is correct — preserve this |
+| Generated `.env.example` contains actual secret values (copied from operator's message during intake) | Real API keys committed to repo history if operator pastes secrets during intake | AGENT.md must instruct Archie to never include actual secret values in `.env.example` — placeholders only (`YOUR_ANTHROPIC_API_KEY`); include warning in intake prompt |
+| Instance name accepted from intake without validation | Operator can name instance `../../etc` or `$(rm -rf)` — path traversal in Dockerfile COPY paths | Validate instance name to `^[a-z][a-z0-9-]{0,18}[a-z0-9]$` in `createInstanceTool` before dispatching |
+| Generated REPOS.json allows unrestricted repos | If intake collects repos loosely ("any repo I own"), REPOS.json could allow broad access | `createInstanceTool` must require explicit repo slugs (`owner/repo`) — no wildcards, no org-level access grants |
+| New instance Slack bot token injected into PR | Operator provides bot token during intake; Archie includes it in docker-compose env section | createInstanceTool must never include secret values in the PR; only placeholder names go in compose file; instruct operator to set secrets manually |
+| Auto-merge enabled for instance scaffolding PRs | A broken instance PR auto-merges and is immediately deployed by `docker compose up` | Exclude `instances/` path from `auto-merge.yml` ALLOWED_PATHS; all instance scaffolding PRs require human review |
 
 ---
 
@@ -407,35 +290,35 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| No acknowledgment of which repo the agent is targeting | User sends "fix the README in neurostory" and gets "job created" — no confirmation of target | `create_job` tool returns `target_repo` in confirmation message: "Job created for NeuroStory (job/uuid)" |
-| Cross-repo job completes silently (notification never fires) | User waits indefinitely; job appears hung | Entrypoint-side notification for cross-repo is mandatory — same UX as same-repo jobs |
-| PR in target repo has "clawforge: job {uuid}" title | Target repo contributors see cryptic automated PRs | Use descriptive PR titles derived from the job description's first sentence |
-| "Merged" notification but PR is only "open" (agent auto-merged but notify sent too early) | User thinks job succeeded; later discovers PR was rejected/reverted | Send notification only after merge completes; if not auto-merging, send "PR open for review" with URL |
-| Job appears to succeed but no changes in target repo (same-repo regression) | User confused — notification says merged but target is unchanged | Same-repo regression tests prevent this; but if it slips through, `changed_files` in notification is the first signal |
+| Archie asks for all fields sequentially (one per message) | 8-turn intake feels tedious; operator abandons halfway | Ask for groups of related fields together: "What's the instance name and which channels (Slack/Telegram/Web)?" — 3-4 turns max |
+| PR description lacks operator action items | Operator merges PR, runs compose up, instance fails silently | PR description must include step-by-step checklist: create Slack app, set GitHub secrets, verify DNS, run `docker compose up --build` |
+| Archie confirms dispatch before collecting repos | Instance scaffolding job creates REPOS.json with empty array | REPOS.json with at least one repo is a required field — gate dispatch on this |
+| No confirmation before dispatching scaffolding job | Operator can't correct mistakes before the job runs | Always show summary and ask "Shall I create this instance?" before calling `createInstanceTool` |
+| Generated PR title is generic "clawforge: job {uuid}" | Operator can't identify instance creation PRs in PR list | Job prompt must instruct container agent to open PR with title "feat(instances): add {name} instance" |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Cross-repo clone:** Trigger a job targeting NeuroStory. Confirm the container's working directory (`pwd` in entrypoint log) shows it cloned NeuroStory, not clawforge. `git remote -v` output should show NeuroStory's URL.
+- [ ] **Intake validation:** Ask Archie to create an instance with name "My Instance!" — confirm it rejects the name before dispatching (special characters and spaces are invalid).
 
-- [ ] **Same-repo regression:** After entrypoint changes, trigger a normal clawforge job. Confirm it still clones clawforge, CLAUDE.md injection is from clawforge, and PR goes to clawforge.
+- [ ] **Structured config handoff:** Inspect the `logs/{uuid}/job.md` for an instance creation job. Confirm a JSON config block is present with all required fields, not just prose.
 
-- [ ] **SOUL.md/AGENT.md loaded from image, not target repo:** Verify the system prompt in `--append-system-prompt` for a cross-repo job contains the expected SOUL.md persona text, not empty string.
+- [ ] **AGENT.md tool format:** Open the generated `instances/{name}/config/AGENT.md`. Confirm the allowedTools list is `Read,Write,Edit,Bash,Glob,Grep,Task,Skill` — exact casing, exact format.
 
-- [ ] **PR in right repo:** After a cross-repo job to NeuroStory, confirm the PR URL in the notification points to `github.com/.../neurostory/pull/...`, not `github.com/.../clawforge/pull/...`.
+- [ ] **SOUL.md shell safety:** Check generated SOUL.md for unescaped `$` characters. Run `grep -n '\$' instances/{name}/config/SOUL.md` — any `$WORD` pattern will be shell-expanded by entrypoint.
 
-- [ ] **Notification fires for cross-repo:** Send a cross-repo job. Wait for completion. Confirm notification arrives in originating Slack thread within 2 minutes of PR creation/merge.
+- [ ] **docker-compose.yml syntax:** After applying the PR, run `docker compose config` on the host. Zero errors required before `docker compose up`.
 
-- [ ] **Token not in logs:** Check the GitHub Actions run log for the cross-repo job. Confirm no URL containing `ghp_`, `x-access-token`, or `github_pat_` appears.
+- [ ] **No actual secrets in PR:** Review the PR diff. Confirm no API keys, bot tokens, or passwords appear in any generated file — only placeholder names like `YOUR_ANTHROPIC_API_KEY`.
 
-- [ ] **ALLOWED_REPOS enforced:** Ask the agent to "run a job on microsoft/vscode". Confirm the `create_job` tool returns an error and no job branch is created.
+- [ ] **Instance name in all paths:** Verify the Dockerfile has `COPY instances/{name}/` (exact lowercase name) in every COPY line. Run `grep -n "instances/" instances/{name}/Dockerfile` and confirm all paths match the directory name.
 
-- [ ] **Default branch detection:** Target a repo with `master` as default branch. Confirm the PR is created against `master`, not `main`.
+- [ ] **REPOS.json format:** Open generated REPOS.json. Confirm it matches the exact schema of `instances/noah/config/REPOS.json` — `repos` array, each entry has `owner`, `slug`, `name`, `aliases`. No extra fields, no missing fields.
 
-- [ ] **Branch cleanup:** After a cross-repo PR is created, confirm the `job/{uuid}` branch in the target repo is deleted (either by merge setting or entrypoint explicit delete).
+- [ ] **PR auto-merge disabled:** Confirm the instance scaffolding PR is NOT auto-merged. It should appear as "Open" in GitHub, requiring manual review and merge.
 
-- [ ] **`getJobStatus` tool still works:** After cross-repo changes, confirm `get_job_status` still queries clawforge's workflow runs correctly — it should be unaffected since jobs still trigger from clawforge.
+- [ ] **Conversation context after dispatch:** After `createInstanceTool` is called, send Archie a new unrelated message on the same thread. Confirm Archie responds to the new message normally and does not resume the intake flow.
 
 ---
 
@@ -443,13 +326,14 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Cross-repo job cloned wrong repo (same-repo bug) | LOW | Close the bad PR; re-trigger job after entrypoint fix; no data loss |
-| Token embedded in log (exposed PAT) | HIGH | Immediately revoke the exposed token in GitHub settings; generate new PAT; update AGENT_GH_TOKEN secret; audit any repos the token had access to for unauthorized activity |
-| Notification never fired for cross-repo job | LOW | Manually summarize the target repo PR; use `getJobStatus` to confirm job ran; entrypoint-notification fix prevents recurrence |
-| System prompt empty for cross-repo job (SOUL.md missing) | MEDIUM | The job ran without persona — output may be inconsistent; re-trigger job after fixing system prompt sourcing; review the empty-persona job's PR carefully before merging |
-| Same-repo jobs regressed after entrypoint change | HIGH | Revert entrypoint to last known-good; re-deploy; investigate conditional logic before re-applying cross-repo changes |
-| `job/{uuid}` branches accumulate in target repo | LOW | Run `git branch -r | grep job/ | sed 's/origin\///' | xargs git push origin --delete` to clean up; add entrypoint branch-delete logic to prevent recurrence |
-| Agent targeted a non-allowed repo | MEDIUM | Close any PR created in unauthorized repo; audit what Claude did in the container; add ALLOWED_REPOS enforcement before re-enabling |
+| Intake dispatched with wrong instance name | MEDIUM | Close the PR; if instance directory was created, delete it with a new PR; restart intake on a new thread |
+| Generated AGENT.md has wrong tool format — Claude Code jobs fail silently | LOW | Edit AGENT.md directly in `instances/{name}/config/AGENT.md`, open a fix PR; no rebuild needed until next deploy |
+| docker-compose.yml merge conflict | LOW | Manually resolve conflict locally; run `docker compose config` to verify; push resolution to PR |
+| docker-compose.yml applied with broken config — container fails to start | MEDIUM | `docker compose down {name}-event-handler`; fix compose file via new PR; `docker compose up -d {name}-event-handler` |
+| Stale volumes from prior deleted instance | LOW | `docker volume rm {name}-data {name}-config`; `docker compose up -d {name}-event-handler` |
+| Actual secret in PR diff — committed to history | HIGH | Immediately rotate the exposed secret; use `git filter-repo` or GitHub's secret removal tool to purge from history; audit access logs for the exposed token |
+| Archie resume mid-intake on wrong thread | LOW | Tell Archie "cancel this instance creation" and start intake on a new thread |
+| Container agent generates files with placeholder values | LOW | Close the PR; fix the job prompt to include explicit values; re-dispatch with corrected config JSON block |
 
 ---
 
@@ -457,44 +341,52 @@ Phase 1 (Entrypoint: cross-repo clone) — review the clone URL construction in 
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Entrypoint clones clawforge instead of target repo | Phase 1: Cross-repo clone in entrypoint | Trigger cross-repo job; inspect container log for correct git remote |
-| GITHUB_TOKEN cannot clone target repo | Phase 1: Cross-repo clone in entrypoint | Confirm PAT scope includes target repo; preflight API call to `gh api repos/{target}` before clone |
-| `gh pr create` creates PR in wrong repo | Phase 2: PR creation on target repo | Trigger cross-repo job; confirm PR URL in notification matches target repo |
-| `auto-merge.yml` cannot merge cross-repo PRs | Phase 2: PR creation on target repo | Confirm per-repo merge policy config; entrypoint auto-merge for `auto_merge: true` repos |
-| `notify-pr-complete.yml` never fires for cross-repo | Phase 3: Cross-repo notification routing | Trigger cross-repo job; confirm Slack notification arrives within 2 min of PR creation |
-| Notification routes to wrong thread | Phase 3: Cross-repo notification routing | Trigger from two different threads; confirm each notification routes back to originating thread |
-| Same-repo regression from entrypoint changes | Phase 1: Cross-repo clone in entrypoint | Run same-repo test harness before and after entrypoint change; both must pass |
-| SOUL.md/AGENT.md absent for cross-repo | Phase 1: Cross-repo clone in entrypoint | Check `--append-system-prompt` content in cross-repo job; must contain persona text |
-| Token in clone URL leaks to logs | Phase 1: Cross-repo clone in entrypoint | Audit entrypoint code review; run job and search Actions log for token patterns |
-| Branch pollution in target repo | Phase 2: PR creation on target repo | Check target repo branch list after job; `job/` branches should be absent or deleted |
-| ALLOWED_REPOS not enforced | Phase 1: Agent tool: allowed repos config | Test with unauthorized repo; confirm rejection before job branch is created |
-| `REPO_SLUG` in FULL_PROMPT is clawforge instead of target | Phase 1: Cross-repo clone in entrypoint | Inspect `FULL_PROMPT` in Claude output; `## Target` section must show target repo slug |
+| Agent singleton corrupts on tool addition | Phase 1: Add `createInstanceTool` to tools array from first commit | Deploy and confirm existing conversations resume normally |
+| Multi-turn intake state in LangGraph only (no queryable store) | Phase 1: Define structured Zod schema for `createInstanceTool` | Inspect `job.md` for JSON config block before container runs |
+| Context window bloat from long intake | Phase 2: Implement conversation reset marker after dispatch | Monitor SQLite size; send long intake then unrelated message — confirm normal response |
+| Template generates valid but semantically wrong config | Phase 3: Include literal template content in job prompt | Run `docker compose config` after PR; inspect REPOS.json schema |
+| docker-compose.yml merge conflicts | Phase 3: Use append-at-end strategy; Phase 4: Include compose verify in PR checklist | Apply two concurrent instance PRs in test; confirm no conflict |
+| Incomplete intake abandonment leaves dangling state | Phase 2: Required field gate in `createInstanceTool`; cancellation in EVENT_HANDLER.md | Say "cancel" mid-intake; confirm no job dispatched |
+| Generated AGENT.md wrong tool name format | Phase 3: Provide exact AGENT.md template in job prompt | Run a Claude Code job from new instance; confirm GSD invocations > 0 |
+| Instance name collision in Docker resources | Phase 2: Name validation in `createInstanceTool`; Phase 3: Collision check in job prompt | Try creating instance with previously-used name; confirm warning in PR |
+| Secrets in PR from operator input | Phase 2: AGENT.md instruction to Archie; Phase 3: Container agent instruction | Review PR diff for any token/key patterns |
+| Auto-merge on instance scaffolding PR | Phase 4: Exclude `instances/` from `auto-merge.yml` ALLOWED_PATHS | Open instance PR; confirm it stays open for manual review |
 
 ---
 
 ## Sources
 
 ### PRIMARY (HIGH confidence — direct codebase inspection)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/docker/job/entrypoint.sh` — Clone URL construction (line 35), SOUL.md/AGENT.md sourcing (lines 87-93), CLAUDE.md injection (lines 111-119), PR creation (lines 267-274)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/.github/workflows/run-job.yml` — `REPO_URL` hardcoded to `${{ github.repository }}` (line 51)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/.github/workflows/notify-pr-complete.yml` — Workflow fires on `workflow_run` within same repo only; `--repo "${{ github.repository }}"` scope (lines 29, 37, 72-75)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/.github/workflows/auto-merge.yml` — `GITHUB_TOKEN` used for merge; `--repo "${{ github.repository }}"` scope (lines 25, 84, 117)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/lib/tools/create-job.js` — `GH_OWNER`/`GH_REPO` always clawforge (lines 10, 15-35)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/lib/ai/tools.js` — `create_job` tool has no `target_repo` parameter (lines 71-78)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/PROJECT.md` — Known cross-repo bug description (line 87); v1.2 requirements (lines 62-68)
-- `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/codebase/INTEGRATIONS.md` — `GH_REPO` env var scope (lines 183-184); notification webhook flow (lines 240-246)
 
-### SECONDARY (MEDIUM confidence — official GitHub docs + confirmed community patterns)
-- [GitHub Docs: Automatic token authentication](https://docs.github.com/en/actions/security-guides/automatic-token-authentication) — GITHUB_TOKEN is scoped to a single repository; cross-repo operations require PAT or GitHub App token
-- [GitHub Community: GITHUB_TOKEN cannot read other private repos in same org](https://github.com/orgs/community/discussions/46566) — Confirmed: GITHUB_TOKEN is repo-scoped by design; PAT required for cross-repo clone
-- [GitHub Community: Pull request created in Action does not trigger pull_request workflow](https://github.com/orgs/community/discussions/65321) — GITHUB_TOKEN-created PRs do not re-trigger `pull_request` workflows; PAT required
-- [GitHub Community: Allow actions/checkout to checkout different private repo](https://github.com/orgs/community/discussions/59488) — Confirmed pattern: PAT with repo scope required for cross-repo checkout
-- [Some Natalie's Corner: Push commits to another repository with GitHub Actions](https://some-natalie.dev/blog/multi-repo-actions/) — Fine-grained PATs per-repo for cross-repo push; token not in URL
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/lib/ai/agent.js` — Singleton pattern `_agent`, `resetAgent()`, tools array at line 19; confirmed no message trimmer configured
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/lib/ai/tools.js` — `createJobTool` schema (job_description only, no structured instance fields); `detectPlatform()` at lines 16-21
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/lib/ai/index.js` — `chat()` append-only invocation at line 69; `addToThread()` state injection at line 288; no message trimming in place
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/templates/docker/job/entrypoint.sh` — `echo -e "$SYSTEM_PROMPT"` at line 156 (shell expansion risk); `ALLOWED_TOOLS` at line 215; `--append-system-prompt` at line 287
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/docker-compose.yml` — Monolithic file with all services; network/volume naming convention (`noah-net`, `noah-data`); no `include:` directive
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/instances/noah/Dockerfile` — `COPY instances/noah/config/` paths (case-sensitive, exact match required)
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/instances/noah/config/REPOS.json` — Exact schema required for generated REPOS.json
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/PROJECT.md` — v1.3 requirements; confirmed 2 existing instances; out-of-scope items (secrets auto-provisioning, Slack app auto-creation)
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/codebase/CONCERNS.md` — Database singleton vulnerability (line 13-17); LangGraph streaming format fragility (line 123-127); LangChain breaking changes risk (line 172-175)
+- `/Users/nwessel/Claude Code/Business/Products/clawforge/.planning/codebase/ARCHITECTURE.md` — State management section (conversation memory in SQLite checkpointer at line 103); error handling patterns (best-effort, no retry for tool errors)
 
-### TERTIARY (LOW confidence — security research, single source)
-- [Wiz Blog: tj-actions/changed-files supply chain attack CVE-2025-30066](https://www.wiz.io/blog/github-action-tj-actions-changed-files-supply-chain-attack-cve-2025-30066) — Tokens printed to workflow logs are exposed in public repos; informs anti-pattern of token-in-URL
-- [Unit42 Palo Alto: ArtiPACKED — hacking giants through race condition in GitHub Actions Artifacts](https://unit42.paloaltonetworks.com/github-repo-artifacts-leak-tokens/) — Token exposure patterns in GitHub Actions; general awareness for log hygiene
+### SECONDARY (MEDIUM confidence — official docs and verified community patterns)
+
+- [LangGraph JS Persistence Docs](https://langchain-ai.github.io/langgraphjs/concepts/persistence/) — Checkpoint-per-step behavior; full state snapshot (not delta) written at each node; confirmed no automatic pruning
+- [LangGraph Breaking Change: langgraph-prebuilt 1.0.2](https://github.com/langchain-ai/langgraph/issues/6363) — Breaking changes on minor versions without proper constraints; confirms pinning `@langchain/*` to exact versions is necessary
+- [LangGraph Breaking Change: checkpoint-postgres serialization](https://github.com/langchain-ai/langgraph/issues/5862) — Minor version upgrades can break checkpoint deserialization; confirms checkpoint format is not stable across minor versions
+- [LangGraph: Modify graph state from tools](https://changelog.langchain.com/announcements/modify-graph-state-from-tools-in-langgraph) — ToolNode cannot handle InjectedState without Command objects; confirms tool schema changes require graph rebuild
+- [Docker Compose Merge Behavior](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/) — Lists replaced entirely (not merged); ports override behavior; `include:` directive for modular compose files
+- [Docker Compose `include:` directive](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/) — Requires Compose v2.20+; import-time conflict detection; safe for per-instance files
+- [LangGraph State Bloat: checkpoint per step](https://focused.io/lab/customizing-memory-in-langgraph-agents-for-better-conversations) — Full state stored at every step; 50MB state * 10 steps = 500MB checkpoint bloat; recommendation to store only references
+- [NeurIPS 2025: Why Multi-Agent LLM Systems Fail](https://arxiv.org/pdf/2503.13657) — Conflicting state updates, timeout/retry ambiguity, message misinterpretation in multi-agent flows; 40% of pilots fail within 6 months of production
+- [Claude Code Security: Shell injection via `${VAR}`](https://flatt.tech/research/posts/pwning-claude-code-in-8-different-ways/) — Claude Code fails to filter Bash variable expansion syntax; fixed in v1.0.93; relevant to SOUL.md template content safety
+
+### TERTIARY (LOW confidence — single source, pattern inference)
+
+- [LangGraph Human-in-the-Loop: interrupt()](https://blog.langchain.com/making-it-easier-to-build-human-in-the-loop-agents-with-interrupt/) — Interrupt-based intake patterns; confirmation before irreversible actions; persistence across interrupt points
+- [Multi-Agent Failure Modes: Production Reliability](https://www.getmaxim.ai/articles/multi-agent-system-reliability-failure-patterns-root-causes-and-production-validation-strategies/) — State corruption from concurrent writes; retry ambiguity; downstream cascade failures from early misinterpretation
 
 ---
-*Pitfalls research for: ClawForge v1.2 — cross-repo job targeting added to existing single-repo agent pipeline*
-*Researched: 2026-02-25*
+
+*Pitfalls research for: ClawForge v1.3 — Instance Generator (multi-turn conversational intake, template-based file generation, docker-compose.yml modification via PR)*
+*Researched: 2026-02-27*
