@@ -66,10 +66,12 @@ Plans:
   3. PR base branch matches the target repo's actual default branch (not hardcoded to main)
   4. If target repo clone fails, container writes clone-error.md and failure stage surfaces as "clone" in notification
   5. PR body identifies ClawForge as the originating system and includes the job ID
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 10-01: TBD
+- [ ] 10-01-PLAN.md — Two-phase clone with WORK_DIR routing, clone-error.md failure guard, cross-repo FULL_PROMPT context
+- [ ] 10-02-PLAN.md — Cross-repo branch creation, default branch detection, gh pr create --repo, pr-result.json + pr-error.md sidecars
+- [ ] 10-03-PLAN.md — notify-pr-complete.yml push trigger extension for cross-repo PR completion notification
 
 ### Phase 11: Notification Pipeline + DB Schema
 **Goal**: Cross-repo job completions reach the user via Slack/Telegram with the correct target repo PR URL, and outcomes are recorded with target repo attribution
@@ -112,6 +114,6 @@ Plans:
 | 7. Previous Job Context | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 8. Polish & Test Sync | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 9. Config + Tool Schema + Entrypoint Foundation | 3/3 | Complete   | 2026-02-26 | - |
-| 10. Actions Workflow + Container Execution + Cross-Repo PR | v1.2 | 0/? | Not started | - |
+| 10. Actions Workflow + Container Execution + Cross-Repo PR | v1.2 | 0/3 | Not started | - |
 | 11. Notification Pipeline + DB Schema | v1.2 | 0/? | Not started | - |
 | 12. Regression Verification | v1.2 | 0/? | Not started | - |
