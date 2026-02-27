@@ -128,7 +128,7 @@ Plans:
 | 11. Notification Pipeline + DB Schema | v1.2 | 3/3 | Complete | 2026-02-27 |
 | 12. Regression Verification | v1.2 | 1/1 | Complete | 2026-02-27 |
 | 13. Tool Infrastructure | v1.3 | 1/1 | Complete | 2026-02-27 |
-| 14. Intake Flow | v1.3 | 0/2 | Not started | - |
+| 14. Intake Flow | 1/2 | In Progress|  | - |
 | 15. Job Prompt Completeness | v1.3 | 0/TBD | Not started | - |
 | 16. PR Pipeline and Auto-Merge Exclusion | v1.3 | 0/TBD | Not started | - |
 | 17. End-to-End Validation | v1.3 | 0/TBD | Not started | - |

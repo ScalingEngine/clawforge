@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Phase 13 — Tool Infrastructure (v1.3 Instance Generator)
+**Current focus:** Phase 14 — Intake Flow (v1.3 Instance Generator)
 
 ## Current Position
 
-Phase: 13 of 17 (Tool Infrastructure)
-Plan: 1 of 1
-Status: Phase complete — ready for Phase 14
-Last activity: 2026-02-27 — Phase 13 executed (createInstanceJobTool registered, yaml installed)
+Phase: 14 of 17 (Intake Flow)
+Plan: 1 of 2 complete (Plan 14-01 done, Plan 14-02 pending human verify)
+Status: Wave 1 complete — awaiting human verification checkpoint (Plan 14-02)
+Last activity: 2026-02-27 — Phase 14 Plan 01 executed (Instance Creation Intake section added to EVENT_HANDLER.md)
 
 Progress: [████████████░░░░░░░░] 60% (12/17 phases complete across all milestones)
 
@@ -43,6 +43,9 @@ Progress: [████████████░░░░░░░░] 60% (12
 
 ### Decisions
 
+- [14-01]: Bias-toward-action override pattern — explicitly name the rule being overridden in the LLM instructions so it understands this is an exception, not a contradiction
+- [14-01]: Optional field capture: tell the LLM what NOT to do (ask dedicated question) rather than only what to do — avoids ambiguity
+- [14-01]: Approval gate requires showing summary ALWAYS — even if operator says yes before summary is shown (prevents premature dispatch on early affirmatives)
 - [v1.3 roadmap]: Tool stub must be registered in agent tools array before any EVENT_HANDLER.md intake is written — avoids SQLite checkpoint corruption on tool add mid-session
 - [v1.3 roadmap]: Instruction-driven slot filling via EVENT_HANDLER.md is the intake model — no custom StateGraph or interrupt() calls needed
 - [v1.3 roadmap]: JavaScript template literals + fs.writeFileSync for file generation — all template engines (Handlebars, EJS, Mustache) are CommonJS-only, incompatible with ESM project
