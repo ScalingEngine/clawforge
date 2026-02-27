@@ -98,10 +98,10 @@ Plans:
   2. A cross-repo job completes successfully on at least one instance, producing a PR in the target repo
   3. Sending a job targeting a repo not in ALLOWED_REPOS is rejected by the agent before job creation
   4. GitHub Actions logs contain no PAT values in plain text
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 12-01: TBD
+- [ ] 12-01-PLAN.md — Write VERIFICATION-RUNBOOK.md with 5 end-to-end scenarios (S1-S5) covering both instances
 
 ## Progress
 
