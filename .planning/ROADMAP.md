@@ -82,10 +82,12 @@ Plans:
   2. Notification message distinguishes "PR open for review" (cross-repo) from "merged" (same-repo)
   3. job_outcomes table records which repo was targeted, visible via get_job_status
   4. Same-repo job notifications are unaffected — still fire at merge with correct clawforge PR URL
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 11-01: TBD
+- [ ] 11-01-PLAN.md — DB schema target_repo column + Drizzle migration + saveJobOutcome() update
+- [ ] 11-02-PLAN.md — Webhook handler target_repo passthrough + Telegram thread-origin routing
+- [ ] 11-03-PLAN.md — getJobStatus() DB overlay for completed jobs + tool description update
 
 ### Phase 12: Regression Verification
 **Goal**: Both instances confirmed working end-to-end for both same-repo and cross-repo jobs, with no silent failures
@@ -115,5 +117,5 @@ Plans:
 | 8. Polish & Test Sync | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 9. Config + Tool Schema + Entrypoint Foundation | 3/3 | Complete   | 2026-02-26 | - |
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | 3/3 | Complete    | 2026-02-27 | - |
-| 11. Notification Pipeline + DB Schema | v1.2 | 0/? | Not started | - |
+| 11. Notification Pipeline + DB Schema | v1.2 | 0/3 | Not started | - |
 | 12. Regression Verification | v1.2 | 0/? | Not started | - |
