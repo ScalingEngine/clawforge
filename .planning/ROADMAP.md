@@ -117,5 +117,5 @@ Plans:
 | 8. Polish & Test Sync | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 9. Config + Tool Schema + Entrypoint Foundation | 3/3 | Complete   | 2026-02-26 | - |
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | 3/3 | Complete    | 2026-02-27 | - |
-| 11. Notification Pipeline + DB Schema | v1.2 | 0/3 | Not started | - |
+| 11. Notification Pipeline + DB Schema | 1/3 | In Progress|  | - |
 | 12. Regression Verification | v1.2 | 0/? | Not started | - |

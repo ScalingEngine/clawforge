@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results
-**Current focus:** Phase 10 — Actions Workflow + Container Execution + Cross-Repo PR
+**Current focus:** Phase 11 — Notification Pipeline DB Schema
 
 ## Current Position
 
-Phase: 10 of 12 (Actions Workflow + Container Execution + Cross-Repo PR)
-Plan: 3 of 3 in current phase
+Phase: 11 of 12 (Notification Pipeline DB Schema)
+Plan: 1 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-27 — 10-02 complete: cross-repo PR creation with default branch detection, pr-result.json sidecar, pr-error.md failure artifact, same-repo path guarded
+Last activity: 2026-02-26 — 11-01 complete: target_repo nullable column added to job_outcomes, drizzle migration generated, saveJobOutcome() updated
 
-Progress: [█████████░░░░░░░░░░░] 42% (phases 1-9 complete, 3 remaining in v1.2)
+Progress: [██████████░░░░░░░░░░] 46% (phases 1-10 complete, phase 11 in progress)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [█████████░░░░░░░░░░░] 42% (ph
 | Phase 10 P01 | 3 | 3 tasks | 2 files |
 | Phase 10 P03 | 1 | 2 tasks | 1 files |
 | Phase 10 P02 | 2 | 2 tasks | 1 files |
+| Phase 11 P01 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 10]: Use --body-file for multi-line PR body in gh pr create — avoids shell quoting hazards with heredoc-in-subshell contexts
 - [Phase 10]: Write pr-result.json to LOG_DIR BEFORE final git add so it is captured in the clawforge job commit — notify-pr-complete.yml reads it from that commit
 - [Phase 10]: Same-repo PR path wrapped in if [ -z TARGET_REPO_SLUG ] guard — v1.1 behavior fully preserved when no target.json present
+- [Phase 11]: Migration generated via drizzle-kit (not hand-written) to keep journal consistent
+- [Phase 11]: targetRepo stored as explicit null (not undefined) in .values() to avoid silent field drop
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ Recent decisions affecting v1.2 work:
 
 ## Session Continuity
 
-Last session: 2026-02-27
-Stopped at: Completed 10-02-PLAN.md — cross-repo PR creation, default branch detection, pr-result.json sidecar, pr-error.md failure artifact
+Last session: 2026-02-26
+Stopped at: Completed 11-01-PLAN.md — target_repo column added to job_outcomes, drizzle migration generated, saveJobOutcome() updated
 Resume file: None
