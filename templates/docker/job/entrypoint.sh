@@ -60,7 +60,9 @@ if [ -f "/job/logs/${JOB_ID}/target.json" ]; then
     set -e
 
     if [ "$CLONE_EXIT" -ne 0 ]; then
-        cat > "/job/logs/${JOB_ID}/clone-error.md" << EOF
+        # Write clone-error.md failure artifact to clawforge job branch (EXEC-03)
+        CLONE_ERROR_FILE="/job/logs/${JOB_ID}/clone-error.md"
+        cat > "${CLONE_ERROR_FILE}" << EOF
 # Clone Failure — Job ${JOB_ID}
 
 **Stage:** clone
@@ -70,8 +72,9 @@ if [ -f "/job/logs/${JOB_ID}/target.json" ]; then
 
 The target repository could not be cloned. Verify AGENT_GH_TOKEN has repo scope on the target repository.
 EOF
+        echo "clone-error.md written to ${CLONE_ERROR_FILE}"
         git -C /job add -A
-        git -C /job commit -m "clawforge: job ${JOB_ID} clone-error" || true
+        git -C /job commit -m "clawforge: job ${JOB_ID} clone-error.md" || true
         git -C /job push origin || true
         exit 1
     fi
