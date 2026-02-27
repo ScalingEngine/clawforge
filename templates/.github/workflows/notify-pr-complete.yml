@@ -17,8 +17,45 @@ jobs:
       pull-requests: read
 
     steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || github.event.workflow_run.head_sha }}
+
+      - name: Detect trigger path
+        id: route
+        run: |
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "push" ]; then
+            # Cross-repo path: check for pr-result.json on this job branch
+            BRANCH="${{ github.ref_name }}"
+            JOB_ID="${BRANCH#job/}"
+
+            if [ -f "logs/${JOB_ID}/pr-result.json" ]; then
+              PR_URL=$(jq -r '.pr_url' "logs/${JOB_ID}/pr-result.json")
+              TARGET_REPO=$(jq -r '.target_repo' "logs/${JOB_ID}/pr-result.json")
+              PR_NUMBER=$(jq -r '.pr_number' "logs/${JOB_ID}/pr-result.json")
+              echo "path=cross_repo" >> "$GITHUB_OUTPUT"
+              echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+              echo "target_repo=${TARGET_REPO}" >> "$GITHUB_OUTPUT"
+              echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
+              echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+              echo "Cross-repo PR detected: ${PR_URL}"
+            else
+              # Push without pr-result.json (e.g., initial job.md commit) — skip silently
+              echo "path=skip" >> "$GITHUB_OUTPUT"
+              echo "No pr-result.json found on ${BRANCH} — skipping notification"
+            fi
+          else
+            # Same-repo path (workflow_run from auto-merge)
+            echo "path=same_repo" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Get PR number
         id: pr
+        if: steps.route.outputs.path == 'same_repo'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -43,12 +80,8 @@ jobs:
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "Found PR #$PR_NUMBER"
 
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
       - name: Gather job results and notify
+        if: steps.route.outputs.path == 'same_repo'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -125,6 +158,64 @@ jobs:
             }' > "${RUNNER_TEMP:-/tmp}/payload.json"
 
           # 7. Send to event handler
+          curl -s -X POST "${{ vars.APP_URL }}/api/github/webhook" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Webhook-Secret-Token: ${{ secrets.GH_WEBHOOK_SECRET }}" \
+            -d @"${RUNNER_TEMP:-/tmp}/payload.json"
+
+      - name: Notify cross-repo PR complete
+        if: steps.route.outputs.path == 'cross_repo'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          JOB_ID="${{ steps.route.outputs.job_id }}"
+          BRANCH="${{ steps.route.outputs.branch }}"
+          PR_URL="${{ steps.route.outputs.pr_url }}"
+          TARGET_REPO="${{ steps.route.outputs.target_repo }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Read job description from checked-out branch
+          JOB_CONTENT=""
+          if [ -f "logs/${JOB_ID}/job.md" ]; then
+            JOB_CONTENT=$(cat "logs/${JOB_ID}/job.md")
+          fi
+
+          # Read GSD invocation log
+          LOG_CONTENT=""
+          LOG_DIR="logs/${JOB_ID}"
+          if [ -d "$LOG_DIR" ]; then
+            LOG_FILE=$(find "$LOG_DIR" -name "gsd-invocations.jsonl" -type f | head -1)
+            if [ -n "$LOG_FILE" ]; then
+              LOG_CONTENT=$(cat "$LOG_FILE")
+            fi
+          fi
+
+          # Build cross-repo notification payload
+          jq -n \
+            --arg job_id "$JOB_ID" \
+            --arg branch "$BRANCH" \
+            --arg status "cross_repo_pr_open" \
+            --arg job "$JOB_CONTENT" \
+            --arg run_url "$RUN_URL" \
+            --arg pr_url "$PR_URL" \
+            --arg target_repo "$TARGET_REPO" \
+            --arg log "$LOG_CONTENT" \
+            --arg merge_result "cross_repo_pr_open" \
+            '{
+              job_id: $job_id,
+              branch: $branch,
+              status: $status,
+              job: $job,
+              run_url: $run_url,
+              pr_url: $pr_url,
+              target_repo: $target_repo,
+              changed_files: [],
+              commit_message: "",
+              log: $log,
+              merge_result: $merge_result
+            }' > "${RUNNER_TEMP:-/tmp}/payload.json"
+
+          # Send to event handler
           curl -s -X POST "${{ vars.APP_URL }}/api/github/webhook" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Webhook-Secret-Token: ${{ secrets.GH_WEBHOOK_SECRET }}" \
