@@ -9,12 +9,10 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 
 ## Current Position
 
-Phase: 11 of 12 (Notification Pipeline DB Schema)
-Plan: 1 of 3 in current phase
-Status: In Progress
-Last activity: 2026-02-26 — 11-01 complete: target_repo nullable column added to job_outcomes, drizzle migration generated, saveJobOutcome() updated
-
-Progress: [██████████░░░░░░░░░░] 46% (phases 1-10 complete, phase 11 in progress)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-27 — Milestone v1.3 started (Instance Generator)
 
 ## Performance Metrics
 

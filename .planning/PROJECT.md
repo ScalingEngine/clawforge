@@ -8,6 +8,17 @@ A multi-channel AI agent platform that connects Claude Code CLI to messaging cha
 
 Agents receive intelligently-constructed prompts with full repo context, so every job starts warm and produces high-quality results without operator intervention.
 
+## Current Milestone: v1.3 Instance Generator
+
+**Goal:** Archie can create fully-configured ClawForge instances through a guided conversation, generating all files as a PR with operator setup instructions.
+
+**Target features:**
+- Multi-turn conversational intake in LangGraph agent (recognize instance creation intent, ask follow-up questions)
+- Instance scaffolding templates with all required files (Dockerfile, SOUL.md, AGENT.md, REPOS.json, .env.example)
+- Claude Code job that generates instance files from gathered configuration
+- docker-compose.yml update for new instance included in PR
+- PR description with exact setup checklist (GitHub secrets, Slack app scopes, PAT permissions)
+
 ## Current State (after v1.2)
 
 **Shipped:** v1.0 Foundation + v1.1 Agent Intelligence + v1.2 Cross-Repo Job Targeting
@@ -59,12 +70,13 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 
 ### Active
 
-*(Next milestone — not yet defined)*
+- [ ] Archie can create a new ClawForge instance through a multi-turn guided conversation
+- [ ] Instance scaffolding generates all required files (Dockerfile, SOUL.md, AGENT.md, REPOS.json, .env.example)
+- [ ] Generated PR includes docker-compose.yml update and operator setup checklist
 
 ### Out of Scope
 
 - Max subscription auth (switching from API keys) — defer until volume justifies
-- Instance generator (Archie spinning up new instances) — future milestone
 - Self-improving agents (meta-agent reviewing success/failure) — future milestone
 - Agent marketplace / composition — future milestone
 - New channel integrations — existing Slack/Telegram/Web sufficient
@@ -115,5 +127,10 @@ Agents receive intelligently-constructed prompts with full repo context, so ever
 | DB overlay fires only when jobId provided AND filteredRuns.length === 0 | Live path fully unchanged for in-progress jobs | ✓ getJobStatus() accurate |
 | Cross-repo PRs notify at PR creation, same-repo at merge | Semantic difference surfaces in UX language ("open for review" vs "merged") | ✓ Language differentiated |
 
+- Instance updates/deletion — define creation first, update flows are additive complexity
+- Automated deployment — security-sensitive; human review via PR is the right gate
+- GitHub secrets auto-provisioning — requires broader infrastructure permissions than appropriate
+- Slack app auto-creation — Slack API limitations; manual setup is acceptable
+
 ---
-*Last updated: 2026-02-27 after v1.2 milestone*
+*Last updated: 2026-02-27 after v1.3 milestone start*
