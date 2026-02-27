@@ -73,7 +73,10 @@ Plans:
   2. Operator volunteering a Slack user ID or Telegram chat ID mid-intake causes Archie to capture it without asking a separate question about it
   3. Archie presents a full configuration summary and waits for explicit "yes" before dispatching the job
   4. Operator saying "cancel" or "never mind" at any point during intake resets the conversation without leaving partial state that contaminates the next unrelated message
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 14-01-PLAN.md — Add Instance Creation Intake section to instances/noah/config/EVENT_HANDLER.md
+- [ ] 14-02-PLAN.md — Human verify Archie intake behavior across 4 behavioral scenarios
 
 ### Phase 15: Job Prompt Completeness
 **Goal**: `buildInstanceJobDescription()` produces a job prompt that causes Claude Code to correctly generate all 7 instance artifacts with semantically valid content scoped to the operator's stated purpose
@@ -124,8 +127,8 @@ Plans:
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | v1.2 | 3/3 | Complete | 2026-02-27 |
 | 11. Notification Pipeline + DB Schema | v1.2 | 3/3 | Complete | 2026-02-27 |
 | 12. Regression Verification | v1.2 | 1/1 | Complete | 2026-02-27 |
-| 13. Tool Infrastructure | 1/1 | Complete    | 2026-02-27 | - |
-| 14. Intake Flow | v1.3 | 0/TBD | Not started | - |
+| 13. Tool Infrastructure | v1.3 | 1/1 | Complete | 2026-02-27 |
+| 14. Intake Flow | v1.3 | 0/2 | Not started | - |
 | 15. Job Prompt Completeness | v1.3 | 0/TBD | Not started | - |
 | 16. PR Pipeline and Auto-Merge Exclusion | v1.3 | 0/TBD | Not started | - |
 | 17. End-to-End Validation | v1.3 | 0/TBD | Not started | - |
