@@ -33,7 +33,7 @@
 **Milestone Goal:** Enable job containers to clone and operate on any allowed target repo, not just clawforge. Agent selects target repo from natural language, container performs two-phase clone, PR created on target repo, notifications include correct target PR URL.
 
 - [x] **Phase 9: Config Layer + Tool Schema + Entrypoint Foundation** - Thread target_repo from agent input through job creation and establish entrypoint correctness blockers (completed 2026-02-26)
-- [ ] **Phase 10: Actions Workflow + Container Execution + Cross-Repo PR** - Container clones and operates in target repo, PR created on correct repo
+- [x] **Phase 10: Actions Workflow + Container Execution + Cross-Repo PR** - Container clones and operates in target repo, PR created on correct repo (completed 2026-02-27)
 - [ ] **Phase 11: Notification Pipeline + DB Schema** - Cross-repo job completions notify users with correct PR URLs, outcomes recorded
 - [ ] **Phase 12: Regression Verification** - Both instances verified end-to-end, same-repo behavior confirmed unchanged
 
@@ -114,6 +114,6 @@ Plans:
 | 7. Previous Job Context | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 8. Polish & Test Sync | v1.1 | 2/2 | Complete | 2026-02-25 |
 | 9. Config + Tool Schema + Entrypoint Foundation | 3/3 | Complete   | 2026-02-26 | - |
-| 10. Actions Workflow + Container Execution + Cross-Repo PR | 2/3 | In Progress|  | - |
+| 10. Actions Workflow + Container Execution + Cross-Repo PR | 3/3 | Complete   | 2026-02-27 | - |
 | 11. Notification Pipeline + DB Schema | v1.2 | 0/? | Not started | - |
 | 12. Regression Verification | v1.2 | 0/? | Not started | - |

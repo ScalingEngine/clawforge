@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-25)
 Phase: 10 of 12 (Actions Workflow + Container Execution + Cross-Repo PR)
 Plan: 3 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-26 — 10-03 complete: notify-pr-complete.yml extended with dual-trigger push/workflow_run and cross-repo pr-result.json detection
+Last activity: 2026-02-27 — 10-02 complete: cross-repo PR creation with default branch detection, pr-result.json sidecar, pr-error.md failure artifact, same-repo path guarded
 
 Progress: [█████████░░░░░░░░░░░] 42% (phases 1-9 complete, 3 remaining in v1.2)
 
@@ -46,6 +46,7 @@ Progress: [█████████░░░░░░░░░░░] 42% (ph
 | Phase 09 P03 | 1 | 2 tasks | 2 files |
 | Phase 10 P01 | 3 | 3 tasks | 2 files |
 | Phase 10 P03 | 1 | 2 tasks | 1 files |
+| Phase 10 P02 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting v1.2 work:
 - [Phase 10 P01]: CLAUDE.md and package.json read from WORK_DIR so cross-repo Claude gets target repo context, not clawforge context
 - [Phase 10]: Cross-repo notification fires from push to job/* branch with pr-result.json; push is only observable clawforge event when PR created on foreign repo
 - [Phase 10]: notify-pr-complete.yml route step: path=cross_repo/same_repo/skip controls which notification path executes; status=cross_repo_pr_open distinguishes from same-repo completed
+- [Phase 10]: Use --body-file for multi-line PR body in gh pr create — avoids shell quoting hazards with heredoc-in-subshell contexts
+- [Phase 10]: Write pr-result.json to LOG_DIR BEFORE final git add so it is captured in the clawforge job commit — notify-pr-complete.yml reads it from that commit
+- [Phase 10]: Same-repo PR path wrapped in if [ -z TARGET_REPO_SLUG ] guard — v1.1 behavior fully preserved when no target.json present
 
 ### Pending Todos
 
@@ -86,6 +90,6 @@ Recent decisions affecting v1.2 work:
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Completed 10-03-PLAN.md — notify-pr-complete.yml extended with dual-trigger push/workflow_run and cross-repo pr-result.json detection
+Last session: 2026-02-27
+Stopped at: Completed 10-02-PLAN.md — cross-repo PR creation, default branch detection, pr-result.json sidecar, pr-error.md failure artifact
 Resume file: None
