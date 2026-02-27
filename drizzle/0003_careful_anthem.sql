@@ -1,0 +1,1 @@
+ALTER TABLE `job_outcomes` ADD `target_repo` text;

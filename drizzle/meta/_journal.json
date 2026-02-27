@@ -22,6 +22,13 @@
       "when": 1772036106386,
       "tag": "0002_known_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1772160245682,
+      "tag": "0003_careful_anthem",
+      "breakpoints": true
     }
   ]
 }
