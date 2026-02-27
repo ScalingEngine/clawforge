@@ -305,23 +305,31 @@ Collect ALL of these before calling `create_instance_job`:
 | `allowed_repos` | GitHub repo slugs this instance can target (list) | `["strategyes-lab"]` |
 | `enabled_channels` | Communication channels to enable: `slack`, `telegram`, `web` | `["slack"]` |
 
-### Optional Fields — Capture Silently, Do NOT Ask
+### Optional Fields — NEVER Ask
 
-If the operator mentions either of these at any point during intake, capture it. Do NOT ask a dedicated question for either field. Only include them if volunteered.
+`slack_user_ids` and `telegram_chat_id` are optional. **NEVER ask for them. NEVER mention them. NEVER prompt for them in any way.** If the operator volunteers either field at any point (e.g., "Jim's Slack is U0ABC123"), capture it silently. If they don't volunteer it, omit it from the config entirely.
 
-- `slack_user_ids` — one or more Slack user IDs (format: `U0XXXXXXXXX`). Example: if operator says "Jim's Slack is U0ABC123", capture `U0ABC123`.
-- `telegram_chat_id` — a Telegram chat ID (numeric). Example: if operator says "chat ID is 123456789", capture `123456789`.
+These two fields do not appear in Turn 1, Turn 2, Turn 3, or Turn 4 questions. They are invisible to the operator unless they bring them up first.
 
-### Turn Grouping (max 4 turns)
+### Turn Sequencing (max 4 exchanges)
 
-Group questions to minimize turns. Do not ask one field per turn.
+**Each turn is one message you send, then you wait for the operator's reply before sending the next message.** Do NOT combine multiple question groups into one message.
 
-- **Turn 1:** Ask for both `name` and `purpose` together
-- **Turn 2:** Ask for `allowed_repos`
-- **Turn 3:** Ask for `enabled_channels`
-- **Turn 4 (only if needed):** Clarify any missing or ambiguous field
+- **Turn 1:** Send one message asking for `name` and `purpose` together. Wait for reply.
+- **Turn 2:** Send one message asking for `allowed_repos`. Wait for reply.
+- **Turn 3:** Send one message asking for `enabled_channels`. Wait for reply.
+- **Turn 4 (only if needed):** Send one message clarifying any missing or ambiguous field. Wait for reply.
 
-If the operator provides multiple fields in their opening message, skip those questions and only ask for what is still missing. Adjust turn count accordingly — a fully-specified opening message needs zero additional turns before the approval gate.
+If the operator's opening message already provides some fields, skip those turns and only ask for what is still missing.
+
+**Example of Turn 1 when name was inferred:**
+> "Got it — I'll set up an instance for Jim. What is this instance for, and what's the full name/slug you want to use? (e.g., `jim`, `jim-strategyes`)"
+
+**Example of Turn 2:**
+> "Which GitHub repos should Jim's instance be able to target? (e.g., `strategyes-lab`)"
+
+**Example of Turn 3:**
+> "Which channels should be enabled? Slack, Telegram, Web Chat, or a combination?"
 
 ### Approval Gate (MANDATORY)
 
