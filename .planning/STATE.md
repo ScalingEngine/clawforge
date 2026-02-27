@@ -49,6 +49,7 @@ Progress: [██████████░░░░░░░░░░] 46% (ph
 | Phase 10 P02 | 2 | 2 tasks | 1 files |
 | Phase 11 P01 | 3 | 2 tasks | 5 files |
 | Phase 11 P02 | 3 | 2 tasks | 1 files |
+| Phase 11 P03 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Recent decisions affecting v1.2 work:
 - [Phase 11]: Migration generated via drizzle-kit (not hand-written) to keep journal consistent
 - [Phase 11]: targetRepo stored as explicit null (not undefined) in .values() to avoid silent field drop
 - [Phase 11]: Dynamic import of sendMessage mirrors existing Slack WebClient pattern
+- [Phase 11]: DB overlay fires only when jobId provided AND filteredRuns.length === 0 — live path fully unchanged
 
 ### Pending Todos
 
