@@ -35,7 +35,7 @@
 - [x] **Phase 9: Config Layer + Tool Schema + Entrypoint Foundation** - Thread target_repo from agent input through job creation and establish entrypoint correctness blockers (completed 2026-02-26)
 - [x] **Phase 10: Actions Workflow + Container Execution + Cross-Repo PR** - Container clones and operates in target repo, PR created on correct repo (completed 2026-02-27)
 - [x] **Phase 11: Notification Pipeline + DB Schema** - Cross-repo job completions notify users with correct PR URLs, outcomes recorded (completed 2026-02-27)
-- [ ] **Phase 12: Regression Verification** - Both instances verified end-to-end, same-repo behavior confirmed unchanged
+- [x] **Phase 12: Regression Verification** - Both instances verified end-to-end, same-repo behavior confirmed unchanged (completed 2026-02-27)
 
 ## Phase Details
 
@@ -118,4 +118,4 @@ Plans:
 | 9. Config + Tool Schema + Entrypoint Foundation | 3/3 | Complete   | 2026-02-26 | - |
 | 10. Actions Workflow + Container Execution + Cross-Repo PR | 3/3 | Complete    | 2026-02-27 | - |
 | 11. Notification Pipeline + DB Schema | 3/3 | Complete    | 2026-02-27 | - |
-| 12. Regression Verification | v1.2 | 0/? | Not started | - |
+| 12. Regression Verification | 1/1 | Complete   | 2026-02-27 | - |

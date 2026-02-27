@@ -42,8 +42,8 @@ Requirements for cross-repo job targeting. Each maps to roadmap phases.
 
 ### Regression Safety
 
-- [ ] **REG-01**: Same-repo jobs work identically when TARGET_REPO_URL is absent or equals REPO_URL
-- [ ] **REG-02**: Both instances (Noah/Archie and StrategyES/Epic) verified end-to-end after all changes
+- [x] **REG-01**: Same-repo jobs work identically when TARGET_REPO_URL is absent or equals REPO_URL
+- [x] **REG-02**: Both instances (Noah/Archie and StrategyES/Epic) verified end-to-end after all changes
 
 ## Future Requirements
 
@@ -98,8 +98,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOTIF-02 | Phase 11 | Complete |
 | NOTIF-03 | Phase 11 | Complete |
 | NOTIF-04 | Phase 11 | Complete |
-| REG-01 | Phase 12 | Pending |
-| REG-02 | Phase 12 | Pending |
+| REG-01 | Phase 12 | Complete |
+| REG-02 | Phase 12 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 20 total

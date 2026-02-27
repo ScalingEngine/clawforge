@@ -50,6 +50,7 @@ Progress: [██████████░░░░░░░░░░] 46% (ph
 | Phase 11 P01 | 3 | 2 tasks | 5 files |
 | Phase 11 P02 | 3 | 2 tasks | 1 files |
 | Phase 11 P03 | 2 | 2 tasks | 2 files |
+| Phase 12 P01 | 3 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting v1.2 work:
 - [Phase 11]: targetRepo stored as explicit null (not undefined) in .values() to avoid silent field drop
 - [Phase 11]: Dynamic import of sendMessage mirrors existing Slack WebClient pattern
 - [Phase 11]: DB overlay fires only when jobId provided AND filteredRuns.length === 0 — live path fully unchanged
+- [Phase 12]: Runbook stops at checkpoint:human-verify — operator must confirm completeness before runbook is used for live testing
+- [Phase 12]: S5 (PAT scan) is passive — embedded in S1/S3 log reviews, no separate trigger needed
 
 ### Pending Todos
 
